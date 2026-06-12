@@ -1,0 +1,44 @@
+[
+  {
+    "id": "6e13ec13-d4c3-4450-b794-f62be348115a",
+    "timestamp": "2026-06-11T20:26:32.963Z",
+    "actor": "assistant",
+    "role": "viewer",
+    "action": "ai.chat"
+  },
+  {
+    "id": "e9e6d5e4-848e-41a2-9625-d6f60132f725",
+    "timestamp": "2026-06-11T20:23:30.244Z",
+    "actor": "product",
+    "role": "viewer",
+    "action": "task.updated:test-task"
+  },
+  {
+    "id": "f17aea18-03af-4d06-8c89-fc3a500383d7",
+    "timestamp": "2026-06-11T20:23:14.293Z",
+    "actor": "product",
+    "role": "viewer",
+    "action": "task.created:test-task"
+  },
+  {
+    "id": "db640ccc-e01a-4d12-b4a6-0f1c6a7f3298",
+    "timestamp": "2026-06-11T20:22:56.994Z",
+    "actor": "product",
+    "role": "viewer",
+    "action": "project.created:test-2"
+  },
+  {
+    "id": "4974f3fd-2d45-4fb2-bd60-8ed0a858c32d",
+    "timestamp": "2026-06-11T20:21:18.083Z",
+    "actor": "assistant",
+    "role": "viewer",
+    "action": "ai.chat"
+  },
+  {
+    "id": "dc75d323-0c76-40b7-ac00-5656f8aa9e5a",
+    "timestamp": "2026-06-11T20:20:46.428Z",
+    "actor": "product",
+    "role": "viewer",
+    "action": "project.created:test-project"
+  }
+]

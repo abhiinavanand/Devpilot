@@ -1,0 +1,14 @@
+{
+  "uid": "devpilot-system-overview",
+  "title": "System Overview",
+  "schemaVersion": 40,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    { "type": "timeseries", "title": "Request Rate", "gridPos": { "x": 0, "y": 0, "w": 8, "h": 8 }, "targets": [{ "expr": "sum(rate(http_requests_total[1m]))", "legendFormat": "req/s" }] },
+    { "type": "timeseries", "title": "Average Latency", "gridPos": { "x": 8, "y": 0, "w": 8, "h": 8 }, "targets": [{ "expr": "sum(rate(http_request_duration_seconds_sum[1m])) / sum(rate(http_request_duration_seconds_count[1m]))", "legendFormat": "seconds" }] },
+    { "type": "timeseries", "title": "Error Rate", "gridPos": { "x": 16, "y": 0, "w": 8, "h": 8 }, "targets": [{ "expr": "sum(rate(http_requests_total{status=~\"5..\"}[1m])) / clamp_min(sum(rate(http_requests_total[1m])), 1)", "legendFormat": "errors" }] },
+    { "type": "stat", "title": "Active Projects", "gridPos": { "x": 0, "y": 8, "w": 12, "h": 6 }, "targets": [{ "expr": "active_projects_total", "legendFormat": "projects" }] },
+    { "type": "stat", "title": "Active Users", "gridPos": { "x": 12, "y": 8, "w": 12, "h": 6 }, "targets": [{ "expr": "active_users_total", "legendFormat": "users" }] }
+  ]
+}

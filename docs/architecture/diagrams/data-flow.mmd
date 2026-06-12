@@ -1,0 +1,14 @@
+sequenceDiagram
+  participant User
+  participant UI
+  participant Gateway
+  participant Service
+  participant Store
+
+  User->>UI: Action
+  UI->>Gateway: API Request
+  Gateway->>Service: Route request
+  Service->>Store: Read/write data
+  Service-->>Gateway: Response
+  Gateway-->>UI: JSON payload
+  UI-->>User: Render update

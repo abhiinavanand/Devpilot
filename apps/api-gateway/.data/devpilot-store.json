@@ -1,0 +1,169 @@
+{
+  "tasks": [
+    {
+      "id": "47d3b06d-7987-4f44-a1d7-80d30fb80193",
+      "title": "test",
+      "description": "test",
+      "type": "Feature",
+      "status": "Done",
+      "priority": "Medium",
+      "assignee": "Unassigned",
+      "points": 3,
+      "due": "2026-06-14",
+      "labels": [
+        "roadmap"
+      ],
+      "createdAt": "2026-05-31T09:15:44.618Z",
+      "updatedAt": "2026-05-31T09:15:51.359Z"
+    },
+    {
+      "id": "a2b252c5-eea2-4431-87cb-8b93c4c9e927",
+      "title": "Auth latency spike",
+      "description": "Trace p95 auth latency and deploy cache fix.",
+      "type": "Incident",
+      "status": "Backlog",
+      "priority": "Critical",
+      "assignee": "SRE",
+      "points": 5,
+      "due": "2026-06-05",
+      "labels": [
+        "auth",
+        "latency"
+      ],
+      "createdAt": "2026-05-31T08:55:26.117Z",
+      "updatedAt": "2026-05-31T08:55:26.117Z"
+    },
+    {
+      "id": "938186c4-1326-43a1-a238-23bea0e3a24e",
+      "title": "Preview environment automation",
+      "description": "Provision ephemeral review apps from pull requests.",
+      "type": "Feature",
+      "status": "In Progress",
+      "priority": "High",
+      "assignee": "Platform",
+      "points": 8,
+      "due": "2026-06-08",
+      "labels": [
+        "ci-cd"
+      ],
+      "createdAt": "2026-05-31T08:55:26.118Z",
+      "updatedAt": "2026-05-31T08:55:26.118Z"
+    },
+    {
+      "id": "58c89e41-80b9-402c-b55f-bbee3fc3d4d0",
+      "title": "Edge caching rollout",
+      "description": "Move static assets behind CDN cache policy.",
+      "type": "Task",
+      "status": "In Progress",
+      "priority": "Medium",
+      "assignee": "Infra",
+      "points": 3,
+      "due": "2026-06-03",
+      "labels": [
+        "performance"
+      ],
+      "createdAt": "2026-05-31T08:55:26.118Z",
+      "updatedAt": "2026-05-31T08:55:26.118Z"
+    },
+    {
+      "id": "eb247be1-c8c7-416b-bd11-e5d77e1f8c5f",
+      "title": "Command palette UX",
+      "description": "Ship keyboard-first navigation for operators.",
+      "type": "Feature",
+      "status": "Done",
+      "priority": "Low",
+      "assignee": "Design",
+      "points": 2,
+      "due": "2026-06-02",
+      "labels": [
+        "frontend"
+      ],
+      "createdAt": "2026-05-31T08:55:26.118Z",
+      "updatedAt": "2026-05-31T08:55:26.118Z"
+    },
+    {
+      "id": "59e93931-2bac-401e-b104-405025764452",
+      "title": "AI assistant prompt guardrails",
+      "description": "Add scoped incident recommendations and safer fallback copy.",
+      "type": "Task",
+      "status": "Done",
+      "priority": "Medium",
+      "assignee": "AI",
+      "points": 5,
+      "due": "2026-06-05",
+      "labels": [
+        "ai"
+      ],
+      "createdAt": "2026-05-31T08:55:26.118Z",
+      "updatedAt": "2026-05-31T08:55:26.118Z"
+    }
+  ],
+  "deployments": [
+    {
+      "id": "96adc035-2a5b-441e-b997-29a05ef2c702",
+      "service": "api-gateway",
+      "environment": "production",
+      "status": "Succeeded",
+      "version": "v1.8.4",
+      "durationMinutes": 14,
+      "successRate": 99,
+      "startedAt": "2026-05-31T08:55:26.118Z"
+    },
+    {
+      "id": "58b6a359-d64b-461c-a84a-d6a671ea14d7",
+      "service": "auth-service",
+      "environment": "production",
+      "status": "Running",
+      "version": "v1.5.2",
+      "durationMinutes": 7,
+      "successRate": 97,
+      "startedAt": "2026-05-31T08:55:26.118Z"
+    },
+    {
+      "id": "1ea62970-2d67-4fcf-af4a-a608c651d577",
+      "service": "analytics-service",
+      "environment": "staging",
+      "status": "Succeeded",
+      "version": "v2.1.0-rc.3",
+      "durationMinutes": 11,
+      "successRate": 100,
+      "startedAt": "2026-05-31T08:55:26.118Z"
+    },
+    {
+      "id": "dc260543-3137-4fae-8f44-abd6632db98d",
+      "service": "notification-service",
+      "environment": "production",
+      "status": "Rolled Back",
+      "version": "v1.3.9",
+      "durationMinutes": 18,
+      "successRate": 72,
+      "startedAt": "2026-05-31T08:55:26.118Z"
+    }
+  ],
+  "slos": [
+    {
+      "id": "5e32ac56-9939-4fc1-956a-6539ebf9c079",
+      "service": "api-gateway",
+      "objective": "99.9% request availability",
+      "target": 99.9,
+      "current": 99.96,
+      "errorBudgetRemaining": 82
+    },
+    {
+      "id": "55fdb5f8-4f79-4b41-b9fd-66cef335834e",
+      "service": "auth-service",
+      "objective": "p95 login under 350ms",
+      "target": 99.5,
+      "current": 99.1,
+      "errorBudgetRemaining": 31
+    },
+    {
+      "id": "da5d4637-67c7-4ae4-bf05-76c3b418fef6",
+      "service": "project-service",
+      "objective": "99.5% write availability",
+      "target": 99.5,
+      "current": 99.72,
+      "errorBudgetRemaining": 64
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "uid": "devpilot-project-metrics",
+  "title": "Project Metrics",
+  "schemaVersion": 40,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    { "type": "stat", "title": "Projects Created", "gridPos": { "x": 0, "y": 0, "w": 8, "h": 6 }, "targets": [{ "expr": "projects_created_total", "legendFormat": "projects" }] },
+    { "type": "stat", "title": "Tasks Created", "gridPos": { "x": 8, "y": 0, "w": 8, "h": 6 }, "targets": [{ "expr": "tasks_created_total", "legendFormat": "tasks" }] },
+    { "type": "timeseries", "title": "Project Growth", "gridPos": { "x": 16, "y": 0, "w": 8, "h": 6 }, "targets": [{ "expr": "active_projects_total", "legendFormat": "active projects" }] },
+    { "type": "timeseries", "title": "Task Creation Rate", "gridPos": { "x": 0, "y": 6, "w": 24, "h": 8 }, "targets": [{ "expr": "increase(tasks_created_total[5m])", "legendFormat": "tasks / 5m" }] }
+  ]
+}

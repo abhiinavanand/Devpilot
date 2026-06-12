@@ -1,0 +1,18 @@
+flowchart LR
+  Client[Web & Mobile Clients]
+  Gateway[API Gateway]
+  Auth[Auth Service]
+  Projects[Project Service]
+  Analytics[Analytics Service]
+  Notifications[Notification Service]
+  Data[(Shared Data Stores)]
+
+  Client --> Gateway
+  Gateway --> Auth
+  Gateway --> Projects
+  Gateway --> Analytics
+  Gateway --> Notifications
+  Auth --> Data
+  Projects --> Data
+  Analytics --> Data
+  Notifications --> Data

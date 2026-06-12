@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devpilot-ai-gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: devpilot-ai-gateway
+  template:
+    metadata:
+      labels:
+        app: devpilot-ai-gateway
+    spec:
+      containers:
+        - name: api-gateway
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          ports:
+            - containerPort: 3000

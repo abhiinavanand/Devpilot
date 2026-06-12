@@ -1,0 +1,12 @@
+flowchart LR
+  User[End Users] --> UI[Frontend Console]
+  UI --> Gateway[API Gateway]
+  Gateway --> Auth[Auth Service]
+  Gateway --> Projects[Project Service]
+  Gateway --> Analytics[Analytics Service]
+  Gateway --> Notifications[Notification Service]
+  Gateway --> Realtime[Realtime Hub]
+  Auth --> Data[(Core Data Stores)]
+  Projects --> Data
+  Analytics --> Data
+  Notifications --> Data

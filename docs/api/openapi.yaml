@@ -1,0 +1,11 @@
+openapi: 3.0.3
+info:
+  title: DevPilot AI API
+  version: 1.0.0
+paths:
+  /auth/login:
+    post:
+      summary: Login
+      responses:
+        '200':
+          description: OK

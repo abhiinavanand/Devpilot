@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  api-gateway:
+    build:
+      context: ../../apps/api-gateway
+    ports:
+      - "3000:3000"
+    depends_on:
+      - auth-service
+      - project-service
+      - analytics-service
+      - notification-service
+
+  auth-service:
+    build:
+      context: ../../services/auth-service
+    environment:
+      PORT: 3001
+    ports:
+      - "3001:3001"
+
+  project-service:
+    build:
+      context: ../../services/project-service
+    environment:
+      PORT: 3002
+    ports:
+      - "3002:3002"
+
+  analytics-service:
+    build:
+      context: ../../services/analytics-service
+    environment:
+      PORT: 3003
+    ports:
+      - "3003:3003"
+
+  notification-service:
+    build:
+      context: ../../services/notification-service
+    environment:
+      PORT: 3004
+    ports:
+      - "3004:3004"
+
+networks:
+  default:
+    driver: bridge
+
+volumes:
+  db_data:
+    driver: local

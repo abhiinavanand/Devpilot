@@ -1,0 +1,12 @@
+{
+  "uid": "devpilot-service-health",
+  "title": "Service Health",
+  "schemaVersion": 40,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    { "type": "stat", "title": "Service Availability", "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 }, "targets": [{ "expr": "up", "legendFormat": "{{job}}" }] },
+    { "type": "timeseries", "title": "Response Times", "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 }, "targets": [{ "expr": "sum by (route) (rate(http_request_duration_seconds_sum[1m])) / sum by (route) (rate(http_request_duration_seconds_count[1m]))", "legendFormat": "{{route}}" }] },
+    { "type": "timeseries", "title": "Scrape Health", "gridPos": { "x": 0, "y": 8, "w": 24, "h": 8 }, "targets": [{ "expr": "up{job=~\"api-gateway|project-service|analytics-service\"}", "legendFormat": "{{job}}" }] }
+  ]
+}

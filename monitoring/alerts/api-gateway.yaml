@@ -1,0 +1,11 @@
+groups:
+  - name: api-gateway-alerts
+    rules:
+      - alert: ApiGatewayHighLatency
+        expr: avg_over_time(api_gateway_latency_p95[5m]) > 0.35
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API Gateway latency high"
+          description: "P95 latency over 350ms for 5 minutes."

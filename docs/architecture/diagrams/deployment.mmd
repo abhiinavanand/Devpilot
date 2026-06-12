@@ -1,0 +1,10 @@
+flowchart TB
+  subgraph AWS
+    ALB[Ingress/ALB]
+    EKS[EKS Cluster]
+    RDS[(Postgres)]
+    Redis[(Redis Cache)]
+  end
+  ALB --> EKS
+  EKS --> RDS
+  EKS --> Redis

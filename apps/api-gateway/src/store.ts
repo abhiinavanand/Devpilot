@@ -612,7 +612,7 @@ export const seedIncidents = () => {
   });
 };
 
-seedDatabase();
+// seedDatabase();  // Disabled: Start with empty database, use GET /api/tasks/seed to populate if needed
 
 const taskFromRow = (row: any): Task => ({
   id: row.id,
@@ -689,7 +689,7 @@ export const resetStore = () => {
     'kubernetes_deployments',
     'incidents',
   ].forEach((table) => run(`DELETE FROM ${table}`));
-  seedDatabase();
+  // seedDatabase();  // Disabled: Start with empty database
   return readStore();
 };
 

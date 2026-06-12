@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { workspaceApi, type Dashboard, type ServiceHealth } from '../api/workspace';
 import { apiClient } from '../api/client';
+import { useRealtimeListener } from '../api/realtime';
 
 type ActivityLog = {
   id: string;
@@ -22,9 +23,15 @@ export const Overview = () => {
     workspaceApi.serviceHealth().then((data) => setServices(data.services)).catch(() => setServices([]));
   };
 
+  // Subscribe to all real-time events to refresh dashboard
+  useRealtimeListener('*', () => {
+    load();
+  });
+
   useEffect(() => {
     load();
-    const timer = window.setInterval(load, 15000);
+    // Still keep polling as fallback, but less frequent
+    const timer = window.setInterval(load, 30000);
     return () => window.clearInterval(timer);
   }, []);
 

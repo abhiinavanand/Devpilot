@@ -1,13 +1,88 @@
 {
-  "uid": "devpilot-project-metrics",
-  "title": "Project Metrics",
+  "uid": "devpilot-projects",
+  "title": "DevPilot Projects Dashboard",
   "schemaVersion": 40,
   "version": 1,
   "refresh": "10s",
+  "timezone": "browser",
   "panels": [
-    { "type": "stat", "title": "Projects Created", "gridPos": { "x": 0, "y": 0, "w": 8, "h": 6 }, "targets": [{ "expr": "projects_created_total", "legendFormat": "projects" }] },
-    { "type": "stat", "title": "Tasks Created", "gridPos": { "x": 8, "y": 0, "w": 8, "h": 6 }, "targets": [{ "expr": "tasks_created_total", "legendFormat": "tasks" }] },
-    { "type": "timeseries", "title": "Project Growth", "gridPos": { "x": 16, "y": 0, "w": 8, "h": 6 }, "targets": [{ "expr": "active_projects_total", "legendFormat": "active projects" }] },
-    { "type": "timeseries", "title": "Task Creation Rate", "gridPos": { "x": 0, "y": 6, "w": 24, "h": 8 }, "targets": [{ "expr": "increase(tasks_created_total[5m])", "legendFormat": "tasks / 5m" }] }
+    {
+      "type": "stat",
+      "title": "Total Projects",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "targets": [{ "expr": "active_projects_total", "refId": "A" }],
+      "options": { "graphMode": "none", "textMode": "auto", "colorMode": "value" }
+    },
+    {
+      "type": "stat",
+      "title": "Projects Created This Week",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "targets": [{ "expr": "increase(projects_created_total[7d])", "refId": "A" }],
+      "options": { "graphMode": "none", "textMode": "auto", "colorMode": "value" }
+    },
+    {
+      "type": "stat",
+      "title": "Total Tasks",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "targets": [{ "expr": "tasks_created_total", "refId": "A" }],
+      "options": { "graphMode": "none", "textMode": "auto", "colorMode": "value" }
+    },
+    {
+      "type": "stat",
+      "title": "Deployments Created",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "targets": [{ "expr": "deployments_created_total", "refId": "A" }],
+      "options": { "graphMode": "none", "textMode": "auto", "colorMode": "value" }
+    },
+    {
+      "type": "timeseries",
+      "title": "Project Growth Over Time",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "targets": [{ "expr": "active_projects_total", "legendFormat": "Active Projects", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": { "custom": { "lineWidth": 2 } },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Task Creation Rate",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "targets": [{ "expr": "increase(tasks_created_total[5m])", "legendFormat": "Tasks per 5m", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": { "custom": { "lineWidth": 2 } },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Deployment Frequency",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "targets": [{ "expr": "increase(deployments_created_total[1h])", "legendFormat": "Deployments per hour", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": { "custom": { "lineWidth": 2 } },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Incidents Over Time",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "targets": [{ "expr": "incidents_created_total", "legendFormat": "Total Incidents", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": { "custom": { "lineWidth": 2 } },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "API Request Rate",
+      "gridPos": { "x": 0, "y": 20, "w": 24, "h": 8 },
+      "targets": [{ "expr": "rate(http_requests_total[5m])", "legendFormat": "{{method}} {{route}} {{status}}", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": { "custom": { "lineWidth": 1 } },
+        "overrides": []
+      }
+    }
   ]
 }

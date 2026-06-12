@@ -3,6 +3,7 @@ import type { DragEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import { Plus } from 'lucide-react';
 import { workspaceApi, type Deployment, type Incident, type Priority, type Project, type ServiceHealth, type Task, type TaskStatus } from '../api/workspace';
+import { useRealtimeListener } from '../api/realtime';
 
 const tabs = ['Overview', 'Tasks', 'Kanban', 'Deployments', 'Incidents', 'Monitoring'] as const;
 const statuses: Array<{ id: TaskStatus; title: string }> = [
@@ -33,6 +34,14 @@ export const ProjectDetail = () => {
     });
     workspaceApi.serviceHealth().then((data) => setServices(data.services)).catch(() => setServices([]));
   };
+
+  // Subscribe to real-time updates
+  useRealtimeListener(['task.created', 'task.updated', 'task.deleted', 'deployment.created', 'incident.created', 'incident.updated', 'project.updated'], (message) => {
+    // Re-fetch data when updates arrive
+    if (message.payload?.projectId === id || message.type.startsWith('project')) {
+      load();
+    }
+  });
 
   useEffect(() => {
     load();

@@ -1,0 +1,45 @@
+services:
+  api-gateway:
+    build:
+      context: ./apps/api-gateway
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      AUTH_HEALTH_URL: http://api-gateway:3000/auth/health
+      PROJECT_HEALTH_URL: http://api-gateway:3000/project/health
+      ANALYTICS_HEALTH_URL: http://api-gateway:3000/analytics/health
+      NOTIFICATION_HEALTH_URL: http://api-gateway:3000/notification/health
+
+  frontend:
+    build:
+      context: ./apps/frontend
+      args:
+        VITE_API_BASE_URL: http://localhost:3000
+        VITE_OPEN_GRAFANA_URL: http://localhost:3001
+    ports:
+      - "80:80"
+    depends_on:
+      - api-gateway
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - api-gateway
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus

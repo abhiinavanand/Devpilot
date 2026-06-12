@@ -11,6 +11,8 @@ export type Project = {
   status: 'Active' | 'Paused' | 'Completed';
   createdAt: string;
   updatedAt: string;
+  taskCount?: number;
+  openIncidents?: number;
 };
 
 export type Task = {
@@ -41,37 +43,24 @@ export type AnalyticsSummary = {
   cards: {
     totalProjects: number;
     activeProjects: number;
+    openTasks: number;
     completedTasks: number;
-    pendingTasks: number;
-    errorRate: number;
-    avgResponseTime: number;
+    deployments: number;
+    incidents: number;
   };
-  series: Array<{ date: string; projects: number; tasks: number; requests: number; latency: number }>;
+  series: Array<{ date: string; projects: number; tasks: number; deployments: number; incidents: number }>;
 };
 
 export type Dashboard = {
   metrics: Array<{ label: string; value: string; trend: string }>;
-  deploymentSeries: Array<{ name: string; success: number; failed: number }>;
-  latencySeries: Array<{ time: string; p95: number; p99: number }>;
   timeline: Array<{ title: string; owner: string; time: string }>;
-  dora: DoraMetrics;
-  incidentAnalysis: IncidentAnalysis;
-  githubSummary: {
-    repositories: number;
-    commits: number;
-    pullRequests: number;
-    latestCommit?: GitHubCommit;
-  };
-  kubernetesSummary: {
-    nodes: number;
-    pods: number;
-    unhealthyPods: number;
-    deployments: number;
-  };
+  deployments: Deployment[];
+  incidents: Incident[];
 };
 
 export type Deployment = {
   id: string;
+  projectId: string;
   service: string;
   environment: 'staging' | 'production';
   status: 'Queued' | 'Running' | 'Succeeded' | 'Failed' | 'Rolled Back';
@@ -79,6 +68,19 @@ export type Deployment = {
   startedAt: string;
   durationMinutes: number;
   successRate: number;
+};
+
+export type Incident = {
+  id: string;
+  projectId: string;
+  title: string;
+  description: string;
+  severity: Priority;
+  status: 'Open' | 'Investigating' | 'Resolved';
+  service: string;
+  createdAt: string;
+  resolvedAt: string | null;
+  summary: string;
 };
 
 export type Slo = {
@@ -171,6 +173,8 @@ export const workspaceApi = {
   projects: () => apiClient.get<{ projects: Project[] }>('/api/projects'),
   createProject: (project: Partial<Project>) => apiClient.post<{ project: Project }>('/api/projects', project),
   updateProject: (id: string, patch: Partial<Project>) => apiClient.patch<{ project: Project }>(`/api/projects/${id}`, patch),
+  deleteProject: (id: string) => apiClient.delete<{ ok: true }>(`/api/projects/${id}`),
+  projectSummary: (id: string) => apiClient.get<{ project: Project; tasks: Task[]; deployments: Deployment[]; incidents: Incident[] }>(`/api/projects/${id}/summary`),
   tasks: (projectId?: string) => apiClient.get<{ tasks: Task[] }>(projectId ? `/api/tasks?projectId=${projectId}` : '/api/tasks'),
   createTask: (task: Partial<Task>) => apiClient.post<{ task: Task }>('/api/tasks', task),
   updateTask: (id: string, patch: Partial<Task>) => apiClient.patch<{ task: Task }>(`/api/tasks/${id}`, patch),
@@ -178,6 +182,11 @@ export const workspaceApi = {
   serviceHealth: () => apiClient.get<{ services: ServiceHealth[] }>('/api/service-health'),
   analyticsSummary: () => apiClient.get<AnalyticsSummary>('/api/analytics'),
   deployments: () => apiClient.get<{ deployments: Deployment[] }>('/api/deployments'),
+  projectDeployments: (projectId: string) => apiClient.get<{ deployments: Deployment[] }>(`/api/deployments?projectId=${projectId}`),
+  createDeployment: (deployment: Partial<Deployment>) => apiClient.post<{ deployment: Deployment }>('/api/deployments', deployment),
+  incidents: (projectId?: string) => apiClient.get<{ incidents: Incident[] }>(projectId ? `/api/incidents?projectId=${projectId}` : '/api/incidents'),
+  createIncident: (incident: Partial<Incident>) => apiClient.post<{ incident: Incident }>('/api/incidents', incident),
+  updateIncident: (id: string, patch: Partial<Incident>) => apiClient.patch<{ incident: Incident }>(`/api/incidents/${id}`, patch),
   slos: () => apiClient.get<{ slos: Slo[] }>('/api/slos'),
   github: () => apiClient.get<{ repositories: GitHubRepository[]; commits: GitHubCommit[]; pullRequests: GitHubPullRequest[] }>('/api/github'),
   syncGithub: (owner: string, repo: string) => apiClient.post<{ repositories: GitHubRepository[]; commits: GitHubCommit[]; pullRequests: GitHubPullRequest[] }>('/api/github/sync', { owner, repo }),

@@ -1,104 +1,125 @@
 import { useEffect, useState } from 'react';
-import { MetricCard } from '../ui/MetricCard';
-import { SectionHeader } from '../ui/SectionHeader';
-import { ChartsPanel } from '../ui/ChartsPanel';
-import { KanbanBoard } from '../ui/KanbanBoard';
-import { TimelinePanel } from '../ui/TimelinePanel';
-import { TerminalPanel } from '../ui/TerminalPanel';
-import { LiveMetrics } from '../ui/LiveMetrics';
-import { SearchPanel } from '../ui/SearchPanel';
-import { ClusterHealthCard } from '../ui/ClusterHealthCard';
-import { InfrastructureCostCard } from '../ui/InfrastructureCostCard';
-import { OpenIncidentsCard } from '../ui/OpenIncidentsCard';
-import { AIInsightsCard } from '../ui/AIInsightsCard';
-import { RecentDeploymentsTable } from '../ui/RecentDeploymentsTable';
-import { LiveActivityFeed } from '../ui/LiveActivityFeed';
-import { workspaceApi, type Dashboard } from '../api/workspace';
+import { workspaceApi, type Dashboard, type ServiceHealth } from '../api/workspace';
+import { apiClient } from '../api/client';
+
+type ActivityLog = {
+  id: string;
+  actor: string;
+  role: string;
+  action: string;
+  timestamp: string;
+};
 
 export const Overview = () => {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [activity, setActivity] = useState<ActivityLog[]>([]);
+  const [services, setServices] = useState<ServiceHealth[]>([]);
   const [error, setError] = useState('');
 
+  const load = () => {
+    workspaceApi.dashboard().then(setDashboard).catch(() => setError('Start the API gateway to load workspace data.'));
+    apiClient.get<ActivityLog[]>('/activity').then(setActivity).catch(() => setActivity([]));
+    workspaceApi.serviceHealth().then((data) => setServices(data.services)).catch(() => setServices([]));
+  };
+
   useEffect(() => {
-    workspaceApi
-      .dashboard()
-      .then((data) => {
-        setDashboard(data);
-        setError('');
-      })
-      .catch(() => setError('Unable to reach the API gateway. Start services/api-gateway to load live data.'));
+    load();
+    const timer = window.setInterval(load, 15000);
+    return () => window.clearInterval(timer);
   }, []);
 
   if (!dashboard) {
     return (
       <div className="card">
-        <h2>{error ? 'API offline' : 'Loading command center'}</h2>
-        <p className="subtle">{error || 'Fetching live workspace metrics.'}</p>
+        <h2>{error ? 'API offline' : 'Loading workspace'}</h2>
+        <p className="subtle">{error || 'Fetching project records.'}</p>
       </div>
     );
   }
 
   return (
-    <>
-    <div className="topbar">
+    <div className="space-y-6">
       <div>
-        <h1>Command Center</h1>
-        <p className="subtle">Unified view of delivery, reliability, and roadmap execution from the API gateway.</p>
+        <h1>Overview</h1>
+        <p className="subtle">Workspace summary from project, task, deployment, and incident records.</p>
       </div>
-    </div>
 
-    <div className="grid">
-      {dashboard.metrics.map((metric) => (
-        <MetricCard key={metric.label} {...metric} />
-      ))}
-    </div>
-    <div className="section">
-      <div className="card">
-        <h3>GitHub Engineering Feed</h3>
-        <p className="metric">{dashboard.githubSummary.commits}</p>
-        <p className="subtle">{dashboard.githubSummary.repositories} repositories · {dashboard.githubSummary.pullRequests} pull requests</p>
-        {dashboard.githubSummary.latestCommit ? (
-          <p className="subtle">Latest: {dashboard.githubSummary.latestCommit.message}</p>
-        ) : null}
+      <div className="grid">
+        {dashboard.metrics.map((metric) => (
+          <div className="card" key={metric.label}>
+            <h3>{metric.label}</h3>
+            <p className="metric">{metric.value}</p>
+            <p className="subtle">{metric.trend}</p>
+          </div>
+        ))}
       </div>
-      <div className="card">
-        <h3>DORA Metrics</h3>
-        <p className="subtle">Deploy frequency: {dashboard.dora.deploymentFrequency}/day</p>
-        <p className="subtle">Lead time: {dashboard.dora.leadTimeHours}h</p>
-        <p className="subtle">Change failure: {dashboard.dora.changeFailureRate}% · MTTR: {dashboard.dora.mttrMinutes}m</p>
+
+      <div className="section">
+        <div className="card">
+          <h3>Recent Activity</h3>
+          <div className="timeline">
+            {activity.slice(0, 6).map((item) => (
+              <div className="timeline-item" key={item.id}>
+                <span className="timeline-dot" />
+                <div>
+                  <strong>{item.action}</strong>
+                  <p className="subtle">{item.actor} · {new Date(item.timestamp).toLocaleString()}</p>
+                </div>
+              </div>
+            ))}
+            {!activity.length ? <p className="subtle">No activity recorded yet.</p> : null}
+          </div>
+        </div>
+
+        <div className="card">
+          <h3>Recent Deployments</h3>
+          <div className="timeline">
+            {dashboard.deployments.map((deployment) => (
+              <div className="timeline-item" key={deployment.id}>
+                <span className="timeline-dot" />
+                <div>
+                  <strong>{deployment.version} · {deployment.service}</strong>
+                  <p className="subtle">{deployment.environment} · {deployment.status} · {new Date(deployment.startedAt).toLocaleString()}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
-      <div className="card">
-        <h3>Kubernetes Health</h3>
-        <p className="metric">{dashboard.kubernetesSummary.unhealthyPods}</p>
-        <p className="subtle">unhealthy pods across {dashboard.kubernetesSummary.nodes} nodes and {dashboard.kubernetesSummary.deployments} deployments</p>
+
+      <div className="section">
+        <div className="card">
+          <h3>Open Incidents</h3>
+          <div className="timeline">
+            {dashboard.incidents.map((incident) => (
+              <div className="timeline-item" key={incident.id}>
+                <span className="timeline-dot" />
+                <div>
+                  <strong>{incident.title}</strong>
+                  <p className="subtle">{incident.service} · {incident.severity} · {incident.status}</p>
+                </div>
+              </div>
+            ))}
+            {!dashboard.incidents.length ? <p className="subtle">No open incidents.</p> : null}
+          </div>
+        </div>
+
+        <div className="card">
+          <h3>Service Health</h3>
+          <div className="grid">
+            {services.map((service) => (
+              <div className="health-row" key={service.service}>
+                <span className={`health-dot ${service.status === 'healthy' ? 'health-dot-ok' : 'health-dot-bad'}`} />
+                <div>
+                  <strong>{service.name}</strong>
+                  <p className="subtle">{service.status} · {new Date(service.timestamp).toLocaleTimeString()}</p>
+                </div>
+              </div>
+            ))}
+            {!services.length ? <p className="subtle">Health checks unavailable.</p> : null}
+          </div>
+        </div>
       </div>
-      <div className="card">
-        <h3>AI Incident Analysis</h3>
-        <p className="metric">{dashboard.incidentAnalysis.riskScore}/100</p>
-        <p className="subtle">{dashboard.incidentAnalysis.summary}</p>
-      </div>
     </div>
-    <SectionHeader title="Delivery Analytics" subtitle="DORA, release health, and reliability signals calculated from workspace records." />
-    <ChartsPanel deploymentSeries={dashboard.deploymentSeries} latencySeries={dashboard.latencySeries} />
-    <div className="section">
-      <KanbanBoard />
-      <TimelinePanel timeline={dashboard.timeline} />
-    </div>
-    <div className="section">
-      <TerminalPanel />
-      <LiveMetrics />
-    </div>
-    <div className="section">
-      <ClusterHealthCard />
-      <InfrastructureCostCard />
-      <OpenIncidentsCard />
-      <AIInsightsCard />
-    </div>
-    <div className="section">
-      <RecentDeploymentsTable />
-      <LiveActivityFeed />
-    </div>
-    <SearchPanel />
-  </>
   );
 };

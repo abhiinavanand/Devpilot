@@ -7,13 +7,7 @@ const navItems = [
   { label: 'Overview', path: '/' },
   { label: 'Projects', path: '/projects' },
   { label: 'Analytics', path: '/analytics' },
-  { label: 'Deployments', path: '/deployments' },
-  { label: 'Incidents', path: '/incidents' },
-  { label: 'SLOs', path: '/slos' },
-  { label: 'Sources', path: '/sources' },
-  { label: 'Kubernetes', path: '/kubernetes' },
-  { label: 'AI Analysis', path: '/ai-assistant' },
-  { label: 'Workbench', path: '/workbench' },
+  { label: 'Monitoring', path: '/monitoring' },
 ];
 
 export const AppLayout = () => (
@@ -21,8 +15,8 @@ export const AppLayout = () => (
     <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[280px_1fr]">
       <aside className="flex flex-col gap-6 border-r border-border bg-card px-6 py-8">
         <div>
-          <h2 className="text-lg font-semibold">Navigation</h2>
-          <p className="text-xs text-muted">Team workspace</p>
+          <h2 className="text-lg font-semibold">Workspace</h2>
+          <p className="text-xs text-muted">Project workflow</p>
         </div>
         <div className="flex flex-col gap-2">
           {navItems.map((item) => (
@@ -47,10 +41,10 @@ export const AppLayout = () => (
         </div>
         <Card className="space-y-2">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">Incident Pulse</h3>
-            <Badge className="bg-success/15 text-success">Healthy</Badge>
+            <h3 className="text-sm font-semibold">Demo Account</h3>
+            <Badge className="bg-success/15 text-success">Logged in</Badge>
           </div>
-          <p className="text-xs text-muted">All regions healthy · 99.98% uptime</p>
+          <p className="text-xs text-muted">demo@devpilot.ai</p>
         </Card>
       </aside>
 

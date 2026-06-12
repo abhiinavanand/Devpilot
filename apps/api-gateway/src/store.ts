@@ -37,6 +37,7 @@ export type Task = {
 
 export type Deployment = {
   id: string;
+  projectId: string;
   service: string;
   environment: 'staging' | 'production';
   status: 'Queued' | 'Running' | 'Succeeded' | 'Failed' | 'Rolled Back';
@@ -119,7 +120,9 @@ export type KubernetesDeployment = {
 
 export type Incident = {
   id: string;
+  projectId: string;
   title: string;
+  description: string;
   severity: Priority;
   status: 'Open' | 'Investigating' | 'Resolved';
   service: string;
@@ -230,6 +233,7 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS deployments (
     id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL DEFAULT '',
     service TEXT NOT NULL,
     environment TEXT NOT NULL,
     status TEXT NOT NULL,
@@ -312,7 +316,9 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS incidents (
     id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL DEFAULT '',
     title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
     severity TEXT NOT NULL,
     status TEXT NOT NULL,
     service TEXT NOT NULL,
@@ -324,6 +330,24 @@ db.exec(`
 
 try {
   run(`ALTER TABLE tasks ADD COLUMN project_id TEXT NOT NULL DEFAULT ''`);
+} catch {
+  // Column already exists in upgraded databases.
+}
+
+try {
+  run(`ALTER TABLE deployments ADD COLUMN project_id TEXT NOT NULL DEFAULT ''`);
+} catch {
+  // Column already exists in upgraded databases.
+}
+
+try {
+  run(`ALTER TABLE incidents ADD COLUMN project_id TEXT NOT NULL DEFAULT ''`);
+} catch {
+  // Column already exists in upgraded databases.
+}
+
+try {
+  run(`ALTER TABLE incidents ADD COLUMN description TEXT NOT NULL DEFAULT ''`);
 } catch {
   // Column already exists in upgraded databases.
 }
@@ -350,6 +374,8 @@ function ensureDefaultProject() {
 function backfillTasksToDefaultProject() {
   const defaultProjectId = ensureDefaultProject();
   run(`UPDATE tasks SET project_id = ? WHERE project_id IS NULL OR project_id = ''`, defaultProjectId);
+  run(`UPDATE deployments SET project_id = ? WHERE project_id IS NULL OR project_id = ''`, defaultProjectId);
+  run(`UPDATE incidents SET project_id = ? WHERE project_id IS NULL OR project_id = ''`, defaultProjectId);
   return defaultProjectId;
 }
 
@@ -396,6 +422,7 @@ function createSeedTask(
 }
 
 function createSeedDeployment(
+  projectId: string,
   service: string,
   environment: Deployment['environment'],
   status: Deployment['status'],
@@ -405,8 +432,10 @@ function createSeedDeployment(
   daysBack: number,
 ) {
   run(
-    `INSERT INTO deployments VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO deployments (id, project_id, service, environment, status, version, started_at, duration_minutes, success_rate)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     uuid(),
+    projectId,
     service,
     environment,
     status,
@@ -474,11 +503,11 @@ export const seedDatabase = () => {
   backfillTasksToDefaultProject();
 
   if (rowCount('deployments') === 0) {
-    createSeedDeployment('api-gateway', 'production', 'Succeeded', 'v1.8.4', 14, 99, 1);
-    createSeedDeployment('auth-service', 'production', 'Running', 'v1.5.2', 7, 97, 0.2);
-    createSeedDeployment('analytics-service', 'staging', 'Succeeded', 'v2.1.0-rc.3', 11, 100, 2);
-    createSeedDeployment('notification-service', 'production', 'Rolled Back', 'v1.3.9', 18, 72, 3);
-    createSeedDeployment('project-service', 'production', 'Succeeded', 'v1.9.1', 9, 98, 5);
+    createSeedDeployment(projectIds[0] || defaultProjectId, 'api-gateway', 'production', 'Succeeded', 'v1.8.4', 14, 99, 1);
+    createSeedDeployment(projectIds[1] || defaultProjectId, 'auth-service', 'production', 'Running', 'v1.5.2', 7, 97, 0.2);
+    createSeedDeployment(projectIds[2] || defaultProjectId, 'analytics-service', 'staging', 'Succeeded', 'v2.1.0-rc.3', 11, 100, 2);
+    createSeedDeployment(projectIds[3] || defaultProjectId, 'notification-service', 'production', 'Rolled Back', 'v1.3.9', 18, 72, 3);
+    createSeedDeployment(projectIds[4] || defaultProjectId, 'project-service', 'production', 'Succeeded', 'v1.9.1', 9, 98, 5);
   }
 
   if (rowCount('slos') === 0) {
@@ -559,12 +588,27 @@ export const seedKubernetesSnapshot = () => {
 export const seedIncidents = () => {
   if (rowCount('incidents') > 0) return;
 
+  const projectIds = all<{ id: string }>('SELECT id FROM projects ORDER BY created_at ASC').map((project) => project.id);
+  const defaultProjectId = projectIds[0] || ensureDefaultProject();
   [
-    ['INC-1042', 'Notification worker crash loop', 'High', 'Investigating', 'notification-service', daysAgo(0.35), null, 'Pod restart storm after queue consumer rollout.'],
-    ['INC-1037', 'Auth latency above SLO', 'Critical', 'Resolved', 'auth-service', daysAgo(3.2), daysAgo(3.05), 'Token introspection cache missed after config drift.'],
-    ['INC-1029', 'Analytics staging deploy rollback', 'Medium', 'Resolved', 'analytics-service', daysAgo(5.4), daysAgo(5.1), 'Schema mismatch detected during canary validation.'],
-  ].forEach(([id, title, severity, status, service, createdAt, resolvedAt, summary]) => {
-    run(`INSERT INTO incidents VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, id, title, severity, status, service, createdAt, resolvedAt, summary);
+    [projectIds[3] || defaultProjectId, 'INC-1042', 'Notification worker crash loop', 'Queue consumer repeatedly restarts after the latest rollout.', 'High', 'Investigating', 'notification-service', daysAgo(0.35), null, 'Pod restart storm after queue consumer rollout.'],
+    [projectIds[1] || defaultProjectId, 'INC-1037', 'Auth latency above target', 'Login requests are slower than expected during token validation.', 'Critical', 'Resolved', 'auth-service', daysAgo(3.2), daysAgo(3.05), 'Token introspection cache missed after config drift.'],
+    [projectIds[2] || defaultProjectId, 'INC-1029', 'Analytics staging deploy rollback', 'Canary validation failed during analytics schema migration.', 'Medium', 'Resolved', 'analytics-service', daysAgo(5.4), daysAgo(5.1), 'Schema mismatch detected during canary validation.'],
+  ].forEach(([projectId, id, title, description, severity, status, service, createdAt, resolvedAt, summary]) => {
+    run(
+      `INSERT INTO incidents (id, project_id, title, description, severity, status, service, created_at, resolved_at, summary)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id,
+      projectId,
+      title,
+      description,
+      severity,
+      status,
+      service,
+      createdAt,
+      resolvedAt,
+      summary,
+    );
   });
 };
 
@@ -588,6 +632,7 @@ const taskFromRow = (row: any): Task => ({
 
 const deploymentFromRow = (row: any): Deployment => ({
   id: row.id,
+  projectId: row.project_id,
   service: row.service,
   environment: row.environment,
   status: row.status,
@@ -781,6 +826,93 @@ export const deleteTask = (id: string) => {
   return result.changes > 0;
 };
 
+export const createDeployment = (input: Partial<Deployment>) => {
+  const deployment: Deployment = {
+    id: uuid(),
+    projectId: String(input.projectId || ensureDefaultProject()),
+    service: String(input.service || 'api-gateway'),
+    environment: input.environment || 'staging',
+    status: input.status || 'Queued',
+    version: String(input.version || 'v0.0.1'),
+    startedAt: String(input.startedAt || now()),
+    durationMinutes: Number(input.durationMinutes || 0),
+    successRate: Number(input.successRate || 0),
+  };
+
+  run(
+    `INSERT INTO deployments (id, project_id, service, environment, status, version, started_at, duration_minutes, success_rate)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    deployment.id,
+    deployment.projectId,
+    deployment.service,
+    deployment.environment,
+    deployment.status,
+    deployment.version,
+    deployment.startedAt,
+    deployment.durationMinutes,
+    deployment.successRate,
+  );
+  return deployment;
+};
+
+export const createIncident = (input: Partial<Incident>) => {
+  const incident: Incident = {
+    id: String(input.id || `INC-${Date.now()}`),
+    projectId: String(input.projectId || ensureDefaultProject()),
+    title: String(input.title || 'Untitled incident'),
+    description: String(input.description || ''),
+    severity: input.severity || 'Medium',
+    status: input.status || 'Open',
+    service: String(input.service || 'api-gateway'),
+    createdAt: String(input.createdAt || now()),
+    resolvedAt: input.resolvedAt || null,
+    summary: String(input.summary || input.description || ''),
+  };
+
+  run(
+    `INSERT INTO incidents (id, project_id, title, description, severity, status, service, created_at, resolved_at, summary)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    incident.id,
+    incident.projectId,
+    incident.title,
+    incident.description,
+    incident.severity,
+    incident.status,
+    incident.service,
+    incident.createdAt,
+    incident.resolvedAt,
+    incident.summary,
+  );
+  return incident;
+};
+
+export const updateIncident = (id: string, patch: Partial<Incident>) => {
+  const existing = get<any>('SELECT * FROM incidents WHERE id = ?', id);
+  if (!existing) return undefined;
+  const current = listIncidents().find((incident) => incident.id === id);
+  if (!current) return undefined;
+  const updated: Incident = {
+    ...current,
+    ...patch,
+    id,
+    resolvedAt: patch.status === 'Resolved' && !patch.resolvedAt ? now() : patch.resolvedAt ?? current.resolvedAt,
+  };
+
+  run(
+    `UPDATE incidents SET project_id = ?, title = ?, description = ?, severity = ?, status = ?, service = ?, resolved_at = ?, summary = ? WHERE id = ?`,
+    updated.projectId,
+    updated.title,
+    updated.description,
+    updated.severity,
+    updated.status,
+    updated.service,
+    updated.resolvedAt,
+    updated.summary || updated.description,
+    id,
+  );
+  return updated;
+};
+
 export const upsertGitHubRepository = (repo: Omit<GitHubRepository, 'id' | 'lastSyncedAt'>) => {
   const existing = get<{ id: string }>('SELECT id FROM github_repositories WHERE full_name = ?', repo.fullName);
   const id = existing?.id ?? uuid();
@@ -883,7 +1015,9 @@ export const listKubernetesDeployments = (): KubernetesDeployment[] =>
 export const listIncidents = (): Incident[] =>
   all<any>('SELECT * FROM incidents ORDER BY created_at DESC').map((row) => ({
     id: row.id,
+    projectId: row.project_id,
     title: row.title,
+    description: row.description || row.summary,
     severity: row.severity,
     status: row.status,
     service: row.service,

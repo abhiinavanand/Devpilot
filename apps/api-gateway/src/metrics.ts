@@ -12,6 +12,8 @@ const requests: RequestMetric[] = [];
 const counters = {
   projectsCreated: 0,
   tasksCreated: 0,
+  deploymentsCreated: 0,
+  incidentsCreated: 0,
 };
 
 const buckets = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
@@ -25,6 +27,14 @@ export const observeProjectCreated = () => {
 
 export const observeTaskCreated = () => {
   counters.tasksCreated += 1;
+};
+
+export const observeDeploymentCreated = () => {
+  counters.deploymentsCreated += 1;
+};
+
+export const observeIncidentCreated = () => {
+  counters.incidentsCreated += 1;
 };
 
 export const prometheusMiddleware = (req: Request, res: Response, next: NextFunction) => {
@@ -93,9 +103,12 @@ export const renderMetrics = () => {
     '# HELP active_projects_total Active projects currently stored.',
     '# TYPE active_projects_total gauge',
     `active_projects_total ${store.projects.filter((project) => project.status === 'Active').length}`,
-    '# HELP active_users_total Demo active users inferred from task assignees.',
-    '# TYPE active_users_total gauge',
-    `active_users_total ${new Set(store.tasks.map((task) => task.assignee).filter(Boolean)).size}`,
+    '# HELP deployments_created_total Total deployments created through the API.',
+    '# TYPE deployments_created_total counter',
+    `deployments_created_total ${counters.deploymentsCreated}`,
+    '# HELP incidents_created_total Total incidents created through the API.',
+    '# TYPE incidents_created_total counter',
+    `incidents_created_total ${counters.incidentsCreated}`,
   );
 
   return `${lines.join('\n')}\n`;

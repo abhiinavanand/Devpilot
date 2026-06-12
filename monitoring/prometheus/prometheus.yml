@@ -7,16 +7,5 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets:
+          - api-gateway:3000
           - host.docker.internal:3000
-
-  - job_name: project-service
-    metrics_path: /metrics
-    static_configs:
-      - targets:
-          - host.docker.internal:3002
-
-  - job_name: analytics-service
-    metrics_path: /metrics
-    static_configs:
-      - targets:
-          - host.docker.internal:3003

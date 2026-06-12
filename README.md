@@ -3,227 +3,142 @@
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![TypeScript](https://img.shields.io/badge/typescript-5.5-blue)
-![Terraform](https://img.shields.io/badge/terraform-ready-844fba)
+![Docker](https://img.shields.io/badge/docker-ready-blue)
 
-DevPilot AI is an AI-powered DevOps Project Management SaaS platform built like a startup MVP after six months of focused engineering by a five-person team. It combines a modern command-center UI, microservices, real-time systems, and infrastructure-as-code to simulate an enterprise-grade product ready for investor demos, recruiter reviews, and portfolio showcases.
-
-> **Positioning:** DevPilot AI is designed to be resume-worthy for DevOps + AI roles, impressive on GitHub, and polished enough for demo videos and LinkedIn posts.
-
-## Table of Contents
-
-- [Features](#features)
-- [Platform Highlights](#platform-highlights)
-# DevPilot AI
-
-![Build](https://img.shields.io/badge/build-passing-brightgreen)
-![License](https://img.shields.io/badge/license-MIT-blue)
-![TypeScript](https://img.shields.io/badge/typescript-5.5-blue)
-![Terraform](https://img.shields.io/badge/terraform-ready-844fba)
-
-DevPilot AI is an AI-powered DevOps Project Management SaaS platform built like a startup MVP after six months of focused engineering by a five-person team. It combines a modern command-center UI, microservices, real-time systems, and infrastructure-as-code to simulate an enterprise-grade product ready for investor demos, recruiter reviews, and portfolio showcases.
-
-> **Positioning:** DevPilot AI is designed to be resume-worthy for DevOps + AI roles, impressive on GitHub, and polished enough for demo videos and LinkedIn posts.
-
-## Table of Contents
-
-- [Features](#features)
-- [Platform Highlights](#platform-highlights)
-- [Architecture](#architecture)
-- [System Diagrams](#system-diagrams)
-- [Repository Map](#repository-map)
-- [Getting Started](#getting-started)
-- [Local Setup](#local-setup)
-- [Microservices](#microservices)
-- [Observability](#observability)
-- [AI & RAG](#ai--rag)
-- [Data & Seeds](#data--seeds)
-- [Deployment](#deployment)
-- [Production Terraform](#production-terraform)
-- [API Documentation](#api-documentation)
-- [Documentation](#documentation)
-- [Roadmap](#roadmap)
-- [Version History](#version-history)
-- [Engineering Notes](#engineering-notes)
-- [GitHub Polish](#github-polish)
-- [Resume & Interview](#resume--interview)
-- [Contributing](#contributing)
-- [License](#license)
+DevPilot AI is a clean, project-centric platform for engineering teams to manage projects, track deployments, and monitor service health. Built with React, Express, and Docker, it combines task management, deployment tracking, and observability in one place.
 
 ## Features
 
-- **User Authentication**: Secure user authentication and management through the Auth Service.
-- **Project Management**: Create, update, and manage projects with the Project Service.
-- **Analytics and Reporting**: Gain insights into project performance and team productivity with the Analytics Service.
-- **Notifications**: Real-time notifications and alerts to keep teams informed.
-- **API Gateway**: A unified entry point for all microservices, simplifying API management.
-- **Realtime Hub**: WebSocket-based updates for activity, jobs, and metrics.
-- **AI Assistant**: Interactive chatbot and retrieval-ready workflow foundation.
+- **Project Management**: Create projects, assign ownership, track status
+- **Task Management**: Full CRUD with Kanban boards, priorities, and assignments
+- **Deployment Tracking**: Track deployments across environments with status and version control
+- **Incident Management**: Create, investigate, and resolve incidents
+- **Service Monitoring**: Real-time health checks and integration with Grafana
+- **Analytics**: Track projects, tasks, deployments, and incidents over time
+- **Prometheus Metrics**: Built-in metrics export for observability
 
-## Platform Highlights
+## Quick Start
 
-- **Modular frontend kit** with 120+ UI components, API clients, and shared utilities.
-- **Polished command center UI** inspired by Linear, Jira, Vercel, Datadog, GitHub, and Grafana.
-- **Enterprise-ready CI/CD** workflows with staging/production scaffolds.
-- **Infrastructure-as-code** via Helm charts and Terraform modules.
-- **Observability suite** with dashboards, alerting, and SRE runbooks.
-- **Data foundations** including seed scripts and realistic datasets.
-- **Production safeguards** such as rate limiting, RBAC, caching, and background jobs.
+### With Docker (Recommended)
+
+```bash
+docker compose up
+```
+
+Visit http://localhost
+
+### Local Development
+
+```bash
+npm run dev:api      # Terminal 1: API on localhost:3000
+npm run dev          # Terminal 2: Frontend on localhost:5173
+npm run monitoring   # Terminal 3 (optional): Prometheus & Grafana
+```
+
+## Login
+
+Demo Account:
+- Email: `demo@devpilot.ai`
+- Password: `password123`
+
+## Project Workflow
+
+1. **Overview** - Workspace dashboard with real metrics
+2. **Projects** - Create and manage projects
+3. **Project Detail** - Access all project features:
+   - Overview: Summary cards
+   - Tasks: Task CRUD + assignment
+   - Kanban: Drag-and-drop board
+   - Deployments: Release tracking
+   - Incidents: Issue management
+   - Monitoring: Service health
 
 ## Architecture
 
-DevPilot AI is structured around a microservices architecture with an API gateway, service discovery, and real-time event streams. Each service is independently deployable and can be scaled based on demand.
+```
+Frontend (React + Vite)
+    ↓
+API Gateway (Express + SQLite)
+    ↓
+Prometheus (Metrics Collection)
+    ↓
+Grafana (Observability)
+```
 
-## System Diagrams
+- **Frontend**: React SPA with TypeScript, Tailwind CSS
+- **API**: Express.js with embedded SQLite database
+- **Monitoring**: Prometheus + Grafana stack
+- **Containerization**: Docker Compose for one-command startup
 
-- System overview: `docs/architecture/diagrams/system.mmd`
-- Data flow: `docs/architecture/diagrams/data-flow.mmd`
-- Deployment topology: `docs/architecture/diagrams/deployment.mmd`
+## API Endpoints
 
-## Repository Map
+### Projects
+- `GET /api/projects` - List all projects
+- `POST /api/projects` - Create project
+- `GET /api/projects/:id/summary` - Get project details
 
-- `apps/frontend`: UI shell, component library, API clients.
-- `services/*`: Microservices (auth, project, analytics, notifications, gateway, service discovery, AI RAG).
-- `libs/*`: Shared configuration, logging, utilities, and types.
-- `infra/helm`: Helm charts and templates.
-- `infra/terraform`: Terraform modules and environment overlays.
-- `infra/observability`: Prometheus, Grafana, Loki, Promtail stack.
-- `monitoring`: Dashboards, alerts, and SLOs.
-- `docs`: Architecture, API specs, engineering playbooks, and portfolio assets.
-- `data`: Seed scripts and enterprise datasets.
+### Tasks
+- `POST /api/tasks` - Create task
+- `PATCH /api/tasks/:id` - Update task
+- `DELETE /api/tasks/:id` - Delete task
 
-## Getting Started
+### Deployments
+- `POST /api/deployments` - Record deployment
 
-1. **Clone the Repository**:
-   ```
-   git clone https://github.com/yourusername/devpilot-ai.git
-   cd devpilot-ai
-   ```
+### Incidents
+- `POST /api/incidents` - Create incident
+- `PATCH /api/incidents/:id` - Update incident
 
-2. **Install Dependencies**:
-   ```
-   npm install
-   ```
+### Monitoring
+- `GET /metrics` - Prometheus metrics
+- `GET /api/service-health` - Service status
 
-3. **Run the Application**:
-   ```
-   cd infra/docker
-   docker-compose up
-   ```
+## Database
 
-4. **Access the Application**:
-   - API Gateway: `http://localhost:3000`
-   - Frontend: `http://127.0.0.1:5173`
+- **Type**: SQLite (embedded)
+- **Seeding**: `npm run seed` to populate sample data
+- **Location**: `.data/store.db`
 
-## Local Setup
+Data includes: Projects, Tasks, Deployments, Incidents
 
-- Local setup guide: `docs/local-setup.md`
+## Monitoring
 
-## Microservices
+### Prometheus
+- URL: http://localhost:9090
+- Scrapes `/metrics` endpoint every 10 seconds
 
-### API Gateway
-- **Location**: `services/api-gateway`
-- **Entry Point**: `src/index.ts`
-
-### Auth Service
-- **Location**: `services/auth-service`
-- **Entry Point**: `src/index.ts`
-
-### Project Service
-- **Location**: `services/project-service`
-- **Entry Point**: `src/index.ts`
-
-### Analytics Service
-- **Location**: `services/analytics-service`
-- **Entry Point**: `src/index.ts`
-
-### Notification Service
-- **Location**: `services/notification-service`
-- **Entry Point**: `src/index.ts`
-
-### Service Discovery
-- **Location**: `services/service-discovery`
-- **Entry Point**: `src/index.ts`
-
-### AI RAG Service
-- **Location**: `services/ai-rag-service`
-- **Entry Point**: `app/main.py`
-
-## Observability
-
-- Dashboards live in `monitoring/dashboards`.
-- Alerts live in `monitoring/alerts`.
-- SLOs and runbooks are documented in `docs/engineering/sre`.
-- Enterprise stack: `infra/observability` and `docs/monitoring/prometheus-grafana-loki.md`.
-
-## AI & RAG
-
-- RAG service: `services/ai-rag-service`
-- Architecture docs: `docs/ai`
-
-## Data & Seeds
-
-- SQL seed scripts: `data/seed`.
-- Enterprise sample datasets: `data/datasets`.
-
-## Deployment
-
-- **Docker**: Use the `docker-compose.yml` file for local development.
-- **Kubernetes**: Use the `services.yaml` and `ingress.yaml` files for deploying to a Kubernetes cluster.
-- **Deployment guide**: `docs/deployment/guide.md`
-
-## Production Terraform
-
-- Production stack: `infra/terraform/production`
-- EKS guide: `docs/deployment/eks-production.md`
-
-## API Documentation
-
-- Overview: `docs/api/README.md`
-- Reference: `docs/api/reference.md`
-- Versioning: `docs/api/versioning.md`
+### Grafana
+- URL: http://localhost:3001
+- Credentials: admin / admin
+- Metrics source: Prometheus
 
 ## Documentation
 
-- Architecture: `docs/architecture`
-- API specs: `docs/api`
-- Engineering: `docs/engineering`
-- Monitoring: `docs/monitoring`
+- [Setup Guide](./SETUP.md) - Detailed setup and troubleshooting
+- [Contributing](./CONTRIBUTING.md) - Development guidelines
+- [License](./LICENSE) - MIT
 
-## Roadmap
+## Tech Stack
 
-- Product roadmap: `docs/roadmap.md`
-- Sprint notes: `docs/sprints`
+- **Frontend**: React 18, TypeScript, Tailwind CSS, Vite
+- **Backend**: Node.js, Express.js, SQLite
+- **Observability**: Prometheus, Grafana
+- **DevOps**: Docker, Docker Compose
 
-## Version History
+## Key Design Decisions
 
-- Changelog: `CHANGELOG.md`
-- Release history: `docs/version-history.md`
+- **Project-centric**: All features organized around projects
+- **Real data only**: No fake metrics or placeholders
+- **Database-backed**: Metrics derived from actual records
+- **Simple auth**: localStorage-based (no backend setup)
+- **Single Page App**: Client-side routing
+- **Embedded DB**: Zero external dependencies
+- **Observable**: Native Prometheus integration
 
-## Engineering Notes
+## Getting Help
 
-- Feature flags: `docs/engineering/feature-flags.md`
-- Technical debt: `docs/engineering/tech-debt.md`
-- Decision log: `docs/engineering/decisions.md`
-- Commit style guide: `docs/engineering/commit-style.md`
-- Microservice boundaries: `docs/architecture/microservice-boundaries.md`
-- API versioning: `docs/api/versioning.md`
-- Engineering handbook: `docs/engineering/handbook.md`
-- Incident response: `docs/engineering/incident-response.md`
-- Monitoring handbook: `docs/engineering/monitoring-handbook.md`
-
-## GitHub Polish
-
-- Badges & screenshots: `docs/github`
-
-## Resume & Interview
-
-- STAR bullets: `docs/resume/STAR-bullets.md`
-- Interview explanations: `docs/resume/interview-explanations.md`
-
-## Contributing
-
-Contributions are welcome! Please fork the repository and submit a pull request with your changes.
+Check [SETUP.md](./SETUP.md) for troubleshooting and detailed documentation.
 
 ## License
 
-This project is licensed under the MIT License. See the LICENSE file for details.
+MIT - See [LICENSE](./LICENSE)

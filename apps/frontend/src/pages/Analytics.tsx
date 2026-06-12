@@ -1,173 +1,92 @@
 import { useEffect, useState } from 'react';
-import { Activity, CheckCircle2, Clock, FolderKanban, Gauge, RadioTower } from 'lucide-react';
-import { Area, AreaChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { workspaceApi, type AnalyticsSummary, type ServiceHealth } from '../api/workspace';
-
-const demoAnalytics: AnalyticsSummary = {
-  cards: {
-    totalProjects: 5,
-    activeProjects: 4,
-    completedTasks: 18,
-    pendingTasks: 32,
-    errorRate: 2.4,
-    avgResponseTime: 142,
-  },
-  series: Array.from({ length: 7 }, (_, index) => ({
-    date: `Day ${index + 1}`,
-    projects: index + 1,
-    tasks: 6 + index * 2,
-    requests: 80 + index * 18,
-    latency: 130 + (index % 3) * 24,
-  })),
-};
-
-const cardMeta = [
-  ['Total Projects', 'totalProjects', FolderKanban],
-  ['Active Projects', 'activeProjects', Activity],
-  ['Completed Tasks', 'completedTasks', CheckCircle2],
-  ['Pending Tasks', 'pendingTasks', Clock],
-  ['Error Rate', 'errorRate', RadioTower],
-  ['Avg Response Time', 'avgResponseTime', Gauge],
-] as const;
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { workspaceApi, type AnalyticsSummary } from '../api/workspace';
 
 export const Analytics = () => {
-  const [analytics, setAnalytics] = useState<AnalyticsSummary>(demoAnalytics);
-  const [services, setServices] = useState<ServiceHealth[]>([]);
-  const [source, setSource] = useState<'live' | 'demo'>('demo');
+  const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     workspaceApi
       .analyticsSummary()
       .then((data) => {
         setAnalytics(data);
-        setSource('live');
+        setError('');
       })
-      .catch(() => setSource('demo'));
+      .catch(() => setError('Analytics require the API gateway.'));
   }, []);
 
-  useEffect(() => {
-    const loadHealth = () => {
-      workspaceApi
-        .serviceHealth()
-        .then((data) => setServices(data.services))
-        .catch(() =>
-          setServices([
-            { name: 'API Gateway', path: '/gateway/health', status: 'unhealthy', service: 'api-gateway', timestamp: new Date().toISOString() },
-            { name: 'Auth Service', path: '/auth/health', status: 'unhealthy', service: 'auth-service', timestamp: new Date().toISOString() },
-            { name: 'Project Service', path: '/project/health', status: 'unhealthy', service: 'project-service', timestamp: new Date().toISOString() },
-            { name: 'Analytics Service', path: '/analytics/health', status: 'unhealthy', service: 'analytics-service', timestamp: new Date().toISOString() },
-            { name: 'Notification Service', path: '/notification/health', status: 'unhealthy', service: 'notification-service', timestamp: new Date().toISOString() },
-          ]),
-        );
-    };
-    loadHealth();
-    const timer = window.setInterval(loadHealth, 10000);
-    return () => window.clearInterval(timer);
-  }, []);
+  if (!analytics) {
+    return <div className="card"><h2>{error || 'Loading analytics'}</h2></div>;
+  }
+
+  const cards = [
+    ['Total Projects', analytics.cards.totalProjects],
+    ['Active Projects', analytics.cards.activeProjects],
+    ['Open Tasks', analytics.cards.openTasks],
+    ['Completed Tasks', analytics.cards.completedTasks],
+    ['Deployments', analytics.cards.deployments],
+    ['Incidents', analytics.cards.incidents],
+  ];
 
   return (
     <div className="space-y-6">
-      <div className="topbar">
-        <div>
-          <h1>Analytics</h1>
-          <p className="subtle">Project progress, platform telemetry, and service availability.</p>
-        </div>
-        <span className="badge">{source === 'live' ? 'Live API data' : 'Demo fallback'}</span>
+      <div>
+        <h1>Analytics</h1>
+        <p className="subtle">Database-derived project, task, deployment, and incident trends.</p>
       </div>
 
       <div className="grid">
-        {cardMeta.map(([label, key, Icon]) => (
-          <div className="card" key={key}>
-            <div className="topbar">
-              <h3>{label}</h3>
-              <Icon size={18} />
-            </div>
-            <p className="metric">
-              {key === 'errorRate' ? `${analytics.cards[key]}%` : key === 'avgResponseTime' ? `${analytics.cards[key]}ms` : analytics.cards[key]}
-            </p>
+        {cards.map(([label, value]) => (
+          <div className="card" key={label}>
+            <h3>{label}</h3>
+            <p className="metric">{value}</p>
           </div>
         ))}
       </div>
 
       <div className="section">
-        <div className="card">
-          <h3>Projects Over Time</h3>
-          <div className="chart-container">
-            <ResponsiveContainer>
-              <AreaChart data={analytics.series}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis />
-                <Tooltip />
-                <Area dataKey="projects" stroke="#2563eb" fill="#93c5fd" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-        <div className="card">
-          <h3>Tasks Created Per Day</h3>
-          <div className="chart-container">
-            <ResponsiveContainer>
-              <AreaChart data={analytics.series}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis />
-                <Tooltip />
-                <Area dataKey="tasks" stroke="#16a34a" fill="#bbf7d0" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+        <Chart title="Tasks Over Time" dataKey="tasks" data={analytics.series} />
+        <Chart title="Projects Over Time" dataKey="projects" data={analytics.series} />
       </div>
-
       <div className="section">
-        <div className="card">
-          <h3>Request Volume</h3>
-          <div className="chart-container">
-            <ResponsiveContainer>
-              <LineChart data={analytics.series}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis />
-                <Tooltip />
-                <Line type="monotone" dataKey="requests" stroke="#7c3aed" strokeWidth={2} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-        <div className="card">
-          <h3>Latency Trend</h3>
-          <div className="chart-container">
-            <ResponsiveContainer>
-              <LineChart data={analytics.series}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis />
-                <Tooltip />
-                <Line type="monotone" dataKey="latency" stroke="#dc2626" strokeWidth={2} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="topbar">
-          <h3>Service Health</h3>
-          <span className="subtle">Auto-refreshes every 10 seconds</span>
-        </div>
-        <div className="grid">
-          {services.map((service) => (
-            <div className="health-row" key={service.service}>
-              <span className={`health-dot ${service.status === 'healthy' ? 'health-dot-ok' : 'health-dot-bad'}`} />
-              <div>
-                <strong>{service.name}</strong>
-                <p className="subtle">{service.path} · {new Date(service.timestamp).toLocaleTimeString()}</p>
-              </div>
-            </div>
-          ))}
-        </div>
+        <BarChartCard title="Deployments Per Week" dataKey="deployments" data={analytics.series} />
+        <BarChartCard title="Incidents Per Week" dataKey="incidents" data={analytics.series} />
       </div>
     </div>
   );
 };
+
+const Chart = ({ title, dataKey, data }: { title: string; dataKey: string; data: AnalyticsSummary['series'] }) => (
+  <div className="card">
+    <h3>{title}</h3>
+    <div className="chart-container">
+      <ResponsiveContainer>
+        <AreaChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis dataKey="date" />
+          <YAxis allowDecimals={false} />
+          <Tooltip />
+          <Area dataKey={dataKey} stroke="#2563eb" fill="#93c5fd" />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  </div>
+);
+
+const BarChartCard = ({ title, dataKey, data }: { title: string; dataKey: string; data: AnalyticsSummary['series'] }) => (
+  <div className="card">
+    <h3>{title}</h3>
+    <div className="chart-container">
+      <ResponsiveContainer>
+        <BarChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis dataKey="date" />
+          <YAxis allowDecimals={false} />
+          <Tooltip />
+          <Bar dataKey={dataKey} fill="#16a34a" />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  </div>
+);

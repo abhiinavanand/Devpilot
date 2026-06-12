@@ -196,6 +196,59 @@ body {
     margin-top: 1rem;
   }
 
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+  }
+
+  .data-table th,
+  .data-table td {
+    border-bottom: 1px solid rgb(var(--border));
+    padding: 0.75rem;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .data-table th {
+    color: rgb(var(--muted));
+    font-weight: 700;
+  }
+
+  .tabs {
+    display: flex;
+    gap: 0.5rem;
+    overflow-x: auto;
+    border-bottom: 1px solid rgb(var(--border));
+  }
+
+  .tab-button {
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: rgb(var(--muted));
+    padding: 0.75rem 0.5rem;
+    font-weight: 700;
+  }
+
+  .tab-button-active {
+    border-color: rgb(var(--primary));
+    color: rgb(var(--foreground));
+  }
+
+  .login-shell {
+    display: grid;
+    min-height: 100vh;
+    place-items: center;
+    padding: 1rem;
+  }
+
+  .login-card {
+    display: grid;
+    width: min(420px, 100%);
+    gap: 1rem;
+  }
+
   .terminal {
     border-radius: 8px;
     background: #020617;

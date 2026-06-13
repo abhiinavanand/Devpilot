@@ -2,7 +2,7 @@ services:
   - type: web
     name: devpilot-api-gateway
     runtime: docker
-    plan: free
+    plan: starter
     rootDir: apps/api-gateway
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health

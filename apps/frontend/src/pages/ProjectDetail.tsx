@@ -42,6 +42,7 @@ export const ProjectDetail = () => {
   const [services, setServices] = useState<ServiceHealth[]>([]);
   const [monitoringSummary, setMonitoringSummary] = useState<MonitoringSummary | null>(null);
   const [copiedWebhook, setCopiedWebhook] = useState(false);
+  const [appUrlDraft, setAppUrlDraft] = useState('');
   const [taskDraft, setTaskDraft] = useState({ title: '', description: '', assignee: '', priority: 'Medium' as Priority, status: 'TODO' as TaskStatus });
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [incidentDraft, setIncidentDraft] = useState({ title: '', description: '', severity: 'Medium' as Priority, service: 'api-gateway' });
@@ -85,6 +86,10 @@ export const ProjectDetail = () => {
     return () => window.clearInterval(interval);
   }, [id]);
 
+  useEffect(() => {
+    setAppUrlDraft(project?.appUrl || '');
+  }, [project?.id]);
+
   const summary = useMemo(() => ({
     totalTasks: tasks.length,
     openTasks: tasks.filter((task) => task.status !== 'DONE').length,
@@ -99,6 +104,14 @@ export const ProjectDetail = () => {
     await navigator.clipboard.writeText(deploymentWebhookUrl);
     setCopiedWebhook(true);
     window.setTimeout(() => setCopiedWebhook(false), 1800);
+  };
+
+  const saveAppUrl = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!project || !appUrlDraft.trim()) return;
+    const { project: updated } = await workspaceApi.updateProject(project.id, { appUrl: appUrlDraft.trim() });
+    setProject(updated);
+    setAppUrlDraft(updated.appUrl || '');
   };
 
   const saveTask = async (event: FormEvent) => {
@@ -188,6 +201,16 @@ export const ProjectDetail = () => {
         <h1>{project.name}</h1>
         <p className="subtle">{project.owner} · {project.status} · {project.serviceName || 'No service mapped'}</p>
       </div>
+
+      <ProjectSetupPanel
+        project={project}
+        appUrlDraft={appUrlDraft}
+        setAppUrlDraft={setAppUrlDraft}
+        webhookUrl={deploymentWebhookUrl}
+        copied={copiedWebhook}
+        onCopy={copyDeploymentWebhook}
+        onSaveAppUrl={saveAppUrl}
+      />
 
       <div className="tabs">
         {tabs.map((tab) => (
@@ -299,12 +322,41 @@ const DeploymentTable = ({ deployments }: { deployments: Deployment[] }) => (
   </div>
 );
 
+const ProjectSetupPanel = ({ project, appUrlDraft, setAppUrlDraft, webhookUrl, copied, onCopy, onSaveAppUrl }: { project: Project; appUrlDraft: string; setAppUrlDraft: (value: string) => void; webhookUrl: string; copied: boolean; onCopy: () => void; onSaveAppUrl: (event: FormEvent) => void }) => {
+  const appUrlReady = Boolean(project.appUrl);
+
+  return (
+    <div className="card space-y-4">
+      <div className="topbar">
+        <div>
+          <h3>Project Connection</h3>
+          <p className="subtle">Copy the deployment webhook into Vercel, GitHub Actions, Railway, or Render, then add the deployed app URL for monitoring.</p>
+        </div>
+        <span className="badge">{appUrlReady ? 'Monitoring connected' : 'App URL needed'}</span>
+      </div>
+      <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+        <input className="editor min-h-0" readOnly value={webhookUrl || 'Webhook is being generated.'} />
+        <button className="toggle inline-flex items-center justify-center gap-2" type="button" onClick={onCopy} disabled={!webhookUrl}>
+          <Copy size={16} /> {copied ? 'Copied' : 'Copy webhook'}
+        </button>
+      </div>
+      <form className="grid gap-3 md:grid-cols-[1fr_auto]" onSubmit={onSaveAppUrl}>
+        <input className="editor min-h-0" placeholder="https://your-deployed-app.com" value={appUrlDraft} onChange={(event) => setAppUrlDraft(event.target.value)} />
+        <button className="toggle inline-flex items-center justify-center" type="submit" disabled={!appUrlDraft.trim()}>
+          Save App URL
+        </button>
+      </form>
+      <p className="subtle">After saving the App URL, DevPilot checks it every 30 seconds and Prometheus sends uptime, response time, HTTP status, and health state to Grafana.</p>
+    </div>
+  );
+};
+
 const DeploymentWebhookSetup = ({ webhookUrl, copied, onCopy }: { webhookUrl: string; copied: boolean; onCopy: () => void }) => (
   <div className="card">
     <div className="topbar">
       <div>
         <h3>Auto Deployment Tracking</h3>
-        <p className="subtle">Add this webhook URL in Vercel so DevPilot records deployment ID, URL, commit, branch, environment, and status automatically.</p>
+        <p className="subtle">Use this project webhook in Vercel, GitHub Actions, Railway, or Render to record deployments automatically.</p>
       </div>
       <button className="toggle inline-flex items-center gap-2" type="button" onClick={onCopy} disabled={!webhookUrl}>
         <Copy size={16} /> {copied ? 'Copied' : 'Copy'}

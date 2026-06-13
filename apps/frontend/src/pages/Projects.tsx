@@ -33,8 +33,8 @@ export const Projects = () => {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!draft.name.trim() || !draft.serviceName.trim() || !draft.appUrl.trim()) {
-      setError('Project name, service name, and app URL are required.');
+    if (!draft.name.trim() || !draft.serviceName.trim()) {
+      setError('Project name and service name are required.');
       return;
     }
 
@@ -64,7 +64,7 @@ export const Projects = () => {
     <div className="space-y-6">
       <div>
         <h1>Projects</h1>
-        <p className="subtle">Create a project, then open it to manage tasks, deployments, incidents, and monitoring.</p>
+        <p className="subtle">Create a project to generate its deployment webhook, then add the deployed app URL inside the project.</p>
       </div>
       {error ? <p className="subtle">{error}</p> : null}
 
@@ -76,7 +76,7 @@ export const Projects = () => {
           {['Active', 'Paused', 'Completed'].map((status) => <option key={status}>{status}</option>)}
         </select>
         <button className="toggle inline-flex items-center justify-center gap-2" type="submit"><Plus size={16} /> {editing ? 'Save' : 'Create'}</button>
-        <input className="editor min-h-0 md:col-span-5" placeholder="App URL to monitor, e.g. https://your-app.vercel.app" value={draft.appUrl} onChange={(event) => setDraft({ ...draft, appUrl: event.target.value })} />
+        <input className="editor min-h-0 md:col-span-5" placeholder="App URL to monitor, optional until after webhook setup" value={draft.appUrl} onChange={(event) => setDraft({ ...draft, appUrl: event.target.value })} />
         <textarea className="editor md:col-span-5" placeholder="Description" value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
       </form>
 

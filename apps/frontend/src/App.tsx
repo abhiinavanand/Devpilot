@@ -17,6 +17,7 @@ const readStoredUser = () => {
 };
 
 const App = () => {
+  const routerBasename = import.meta.env.BASE_URL === '/' ? undefined : import.meta.env.BASE_URL;
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [user, setUser] = useState<AuthUser | null>(() => readStoredUser());
   const [authenticated, setAuthenticated] = useState(() => localStorage.getItem('devpilot.authenticated') === 'true' && Boolean(readStoredUser()));
@@ -39,7 +40,7 @@ const App = () => {
 
   return (
     <ToastHost>
-      <BrowserRouter>
+      <BrowserRouter basename={routerBasename}>
         <Routes>
           <Route path="/login" element={<Login authenticated={authenticated} onLogin={login} />} />
           <Route

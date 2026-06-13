@@ -1,0 +1,76 @@
+name: Deploy Frontend to GitHub Pages
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+        env:
+          GITHUB_PAGES: true
+          VITE_API_BASE_URL: ${{ vars.DEVPILOT_API_URL || 'http://localhost:3000' }}
+          VITE_OPEN_GRAFANA_URL: ${{ vars.DEVPILOT_GRAFANA_URL || 'http://localhost:3001' }}
+
+      - name: Add SPA fallback
+        run: cp dist/index.html dist/404.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/frontend/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Notify DevPilot deployment succeeded
+        if: success() && secrets.DEVPILOT_DEPLOYMENT_WEBHOOK_URL != ''
+        run: |
+          curl -fsS -X POST "${{ secrets.DEVPILOT_DEPLOYMENT_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d @- <<JSON
+          {
+            "provider": "GitHub Actions",
+            "service": "${{ github.event.repository.name }}",
+            "version": "${{ github.sha }}",
+            "environment": "production",
+            "status": "succeeded",
+            "deploymentUrl": "${{ steps.deployment.outputs.page_url }}",
+            "commitSha": "${{ github.sha }}",
+            "branch": "${{ github.ref_name }}",
+            "triggeredBy": "${{ github.actor }}",
+            "externalId": "github-pages-${{ github.run_id }}"
+          }
+          JSON

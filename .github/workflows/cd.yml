@@ -27,6 +27,7 @@ jobs:
     env:
       DEVPILOT_WEBHOOK_URL: ${{ inputs.devpilot_webhook_url || secrets.DEVPILOT_DEPLOYMENT_WEBHOOK_URL }}
       DEPLOYMENT_VERSION: ${{ inputs.version || github.sha }}
+      DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
     steps:
       - uses: actions/checkout@v4
 
@@ -35,12 +36,13 @@ jobs:
         run: |
           curl -fsS -X POST "$DEVPILOT_WEBHOOK_URL" \
             -H "Content-Type: application/json" \
+            -H "Bypass-Tunnel-Reminder: true" \
             -d @- <<JSON
           {
             "provider": "GitHub Actions",
             "service": "${{ github.event.repository.name }}",
             "version": "$DEPLOYMENT_VERSION",
-            "environment": "${{ inputs.environment }}",
+            "environment": "$DEPLOYMENT_ENVIRONMENT",
             "status": "running",
             "deploymentUrl": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
             "commitSha": "${{ github.sha }}",
@@ -60,12 +62,13 @@ jobs:
         run: |
           curl -fsS -X POST "$DEVPILOT_WEBHOOK_URL" \
             -H "Content-Type: application/json" \
+            -H "Bypass-Tunnel-Reminder: true" \
             -d @- <<JSON
           {
             "provider": "GitHub Actions",
             "service": "${{ github.event.repository.name }}",
             "version": "$DEPLOYMENT_VERSION",
-            "environment": "${{ inputs.environment }}",
+            "environment": "$DEPLOYMENT_ENVIRONMENT",
             "status": "succeeded",
             "deploymentUrl": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
             "commitSha": "${{ github.sha }}",
@@ -80,12 +83,13 @@ jobs:
         run: |
           curl -fsS -X POST "$DEVPILOT_WEBHOOK_URL" \
             -H "Content-Type: application/json" \
+            -H "Bypass-Tunnel-Reminder: true" \
             -d @- <<JSON
           {
             "provider": "GitHub Actions",
             "service": "${{ github.event.repository.name }}",
             "version": "$DEPLOYMENT_VERSION",
-            "environment": "${{ inputs.environment }}",
+            "environment": "$DEPLOYMENT_ENVIRONMENT",
             "status": "failed",
             "deploymentUrl": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
             "commitSha": "${{ github.sha }}",

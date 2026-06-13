@@ -22,10 +22,14 @@ import {
     deleteTask,
     findProjectByDeploymentWebhookToken,
     listIncidents,
+    listIncidentsAsync,
     listProjectHealthChecks,
+    listProjectHealthChecksAsync,
     listProjects,
+    listProjectsAsync,
     recordProjectHealthCheck,
     readStore,
+    readStoreAsync,
     resetStore,
     updateIncident,
     updateProject,
@@ -111,11 +115,11 @@ const checkProjectAppUrl = (projectId: string, appUrl: string) =>
     });
 
 const runProjectHealthChecks = async () => {
-    const projects = listProjects().filter((project) => project.status === 'Active' && project.appUrl);
+    const projects = (await listProjectsAsync()).filter((project) => project.status === 'Active' && project.appUrl);
     await Promise.all(projects.map(async (project) => {
         const result = await checkProjectAppUrl(project.id, project.appUrl);
         const status = classifyProjectHealth(result.statusCode, result.responseTimeMs, result.error);
-        const check = recordProjectHealthCheck({
+        const check = await recordProjectHealthCheck({
             projectId: project.id,
             appUrl: project.appUrl,
             status,
@@ -213,7 +217,7 @@ const deploymentFromGitHubPayload = (projectId: string, serviceName: string, bod
     };
 };
 
-const recordIncidentIfMissing = (input: {
+const recordIncidentIfMissing = async (input: {
     projectId: string;
     title: string;
     description: string;
@@ -221,7 +225,7 @@ const recordIncidentIfMissing = (input: {
     service: string;
     actor: string;
 }) => {
-    const alreadyOpen = listIncidents().some((incident) =>
+    const alreadyOpen = (await listIncidentsAsync()).some((incident) =>
         incident.projectId === input.projectId &&
         incident.service === input.service &&
         incident.title === input.title &&
@@ -229,7 +233,7 @@ const recordIncidentIfMissing = (input: {
     );
     if (alreadyOpen) return undefined;
 
-    const incident = createIncident({
+    const incident = await createIncident({
         projectId: input.projectId,
         title: input.title,
         description: input.description,
@@ -248,9 +252,9 @@ const recordIncidentIfMissing = (input: {
     return incident;
 };
 
-const recordDeploymentFailureIncident = (deployment: Deployment, actor: string) => {
+const recordDeploymentFailureIncident = async (deployment: Deployment, actor: string) => {
     if (!['Failed', 'Rolled Back'].includes(deployment.status)) return;
-    recordIncidentIfMissing({
+    await recordIncidentIfMissing({
         projectId: deployment.projectId,
         title: `Deployment ${deployment.status}: ${deployment.version}`,
         description: `${deployment.provider} reported ${deployment.status.toLowerCase()} for ${deployment.service} ${deployment.version}.`,
@@ -300,8 +304,8 @@ app.get('/', (_req, res) => {
     });
 });
 
-app.get('/api/dashboard', (_req, res) => {
-    const store = readStore();
+app.get('/api/dashboard', async (_req, res) => {
+    const store = await readStoreAsync();
     const oneWeekAgo = Date.now() - 7 * 86400000;
     const completedTasks = store.tasks.filter((task) => task.status === 'DONE').length;
     const openTrackedIncidents = store.incidents.filter((incident) => incident.status !== 'Resolved').length;
@@ -329,9 +333,9 @@ app.get('/api/database', (_req, res) => {
     res.json(databaseInfo());
 });
 
-app.get('/api/projects', (_req, res) => {
-    const store = readStore();
-    const projects = listProjects().map((project) => ({
+app.get('/api/projects', async (_req, res) => {
+    const store = await readStoreAsync();
+    const projects = (await listProjectsAsync()).map((project) => ({
         ...project,
         taskCount: store.tasks.filter((task) => task.projectId === project.id).length,
         openTasks: store.tasks.filter((task) => task.projectId === project.id && task.status !== 'DONE').length,
@@ -340,8 +344,8 @@ app.get('/api/projects', (_req, res) => {
     res.json({ projects });
 });
 
-app.post('/api/projects', (req, res) => {
-    const project = createProject(req.body || {});
+app.post('/api/projects', async (req, res) => {
+    const project = await createProject(req.body || {});
     observeProjectCreated();
     recordActivity({
         actor: req.header('x-user') || 'product',
@@ -352,8 +356,8 @@ app.post('/api/projects', (req, res) => {
     res.status(201).json({ project });
 });
 
-app.patch('/api/projects/:id', (req, res) => {
-    const project = updateProject(req.params.id, req.body || {});
+app.patch('/api/projects/:id', async (req, res) => {
+    const project = await updateProject(req.params.id, req.body || {});
     if (!project) {
         res.status(404).json({ error: 'Project not found' });
         return;
@@ -367,8 +371,8 @@ app.patch('/api/projects/:id', (req, res) => {
     res.json({ project });
 });
 
-app.delete('/api/projects/:id', (req, res) => {
-    const deleted = deleteProject(req.params.id);
+app.delete('/api/projects/:id', async (req, res) => {
+    const deleted = await deleteProject(req.params.id);
     if (!deleted) {
         res.status(409).json({ error: 'Project still has tasks or does not exist' });
         return;
@@ -376,13 +380,13 @@ app.delete('/api/projects/:id', (req, res) => {
     res.json({ ok: true });
 });
 
-app.get('/api/projects/:projectId/tasks', (req, res) => {
-    const tasks = readStore().tasks.filter((task) => task.projectId === req.params.projectId);
+app.get('/api/projects/:projectId/tasks', async (req, res) => {
+    const tasks = (await readStoreAsync()).tasks.filter((task) => task.projectId === req.params.projectId);
     res.json({ tasks });
 });
 
-app.get('/api/projects/:projectId/summary', (req, res) => {
-    const store = readStore();
+app.get('/api/projects/:projectId/summary', async (req, res) => {
+    const store = await readStoreAsync();
     const project = store.projects.find((item) => item.id === req.params.projectId);
     if (!project) {
         res.status(404).json({ error: 'Project not found' });
@@ -395,18 +399,18 @@ app.get('/api/projects/:projectId/summary', (req, res) => {
     res.json({ project, tasks, deployments, incidents, healthChecks });
 });
 
-app.get('/api/projects/:projectId/health-checks', (req, res) => {
-    res.json({ healthChecks: listProjectHealthChecks(req.params.projectId).slice(0, 50) });
+app.get('/api/projects/:projectId/health-checks', async (req, res) => {
+    res.json({ healthChecks: (await listProjectHealthChecksAsync(req.params.projectId)).slice(0, 50) });
 });
 
-app.get('/api/tasks', (req, res) => {
+app.get('/api/tasks', async (req, res) => {
     const projectId = String(req.query.projectId || '');
-    const tasks = readStore().tasks.filter((task) => !projectId || task.projectId === projectId);
+    const tasks = (await readStoreAsync()).tasks.filter((task) => !projectId || task.projectId === projectId);
     res.json({ tasks });
 });
 
-app.post('/api/tasks', (req, res) => {
-    const task = createTask(req.body || {});
+app.post('/api/tasks', async (req, res) => {
+    const task = await createTask(req.body || {});
     observeTaskCreated();
     recordActivity({
         actor: req.header('x-user') || 'product',
@@ -417,8 +421,8 @@ app.post('/api/tasks', (req, res) => {
     res.status(201).json({ task });
 });
 
-app.patch('/api/tasks/:id', (req, res) => {
-    const task = updateTask(req.params.id, req.body || {});
+app.patch('/api/tasks/:id', async (req, res) => {
+    const task = await updateTask(req.params.id, req.body || {});
     if (!task) {
         res.status(404).json({ error: 'Task not found' });
         return;
@@ -432,8 +436,8 @@ app.patch('/api/tasks/:id', (req, res) => {
     res.json({ task });
 });
 
-app.delete('/api/tasks/:id', (req, res) => {
-    const deleted = deleteTask(req.params.id);
+app.delete('/api/tasks/:id', async (req, res) => {
+    const deleted = await deleteTask(req.params.id);
     if (!deleted) {
         res.status(404).json({ error: 'Task not found' });
         return;
@@ -447,51 +451,51 @@ app.delete('/api/tasks/:id', (req, res) => {
     res.json({ ok: true });
 });
 
-app.get('/api/deployments', (req, res) => {
+app.get('/api/deployments', async (req, res) => {
     const projectId = String(req.query.projectId || '');
-    const deployments = readStore().deployments.filter((deployment) => !projectId || deployment.projectId === projectId);
+    const deployments = (await readStoreAsync()).deployments.filter((deployment) => !projectId || deployment.projectId === projectId);
     res.json({ deployments });
 });
 
-app.post('/api/deployments', (req, res) => {
-    const deployment = createDeployment(req.body || {});
+app.post('/api/deployments', async (req, res) => {
+    const deployment = await createDeployment(req.body || {});
     observeDeploymentCreated();
     recordActivity({
         actor: req.header('x-user') || 'release',
         role: getRole(req),
         action: `deployment.added:${deployment.version}`,
     });
-    recordDeploymentFailureIncident(deployment, req.header('x-user') || deployment.triggeredBy || deployment.provider);
+    await recordDeploymentFailureIncident(deployment, req.header('x-user') || deployment.triggeredBy || deployment.provider);
     realtime.broadcast({ type: 'deployment.created', payload: deployment });
     res.status(201).json({ deployment });
 });
 
-app.post('/api/projects/:projectId/deployments/webhook', (req, res) => {
-    const project = listProjects().find((item) => item.id === req.params.projectId);
+app.post('/api/projects/:projectId/deployments/webhook', async (req, res) => {
+    const project = (await listProjectsAsync()).find((item) => item.id === req.params.projectId);
     if (!project) {
         res.status(404).json({ error: 'Project not found' });
         return;
     }
 
-    const deployment = createDeployment(deploymentFromWebhookPayload(project.id, req.body || {}));
+    const deployment = await createDeployment(deploymentFromWebhookPayload(project.id, req.body || {}));
     observeDeploymentCreated();
     recordActivity({
         actor: req.header('x-user') || deployment.triggeredBy || deployment.provider,
         role: getRole(req),
         action: `deployment.added:${deployment.version}`,
     });
-    recordDeploymentFailureIncident(deployment, req.header('x-user') || deployment.triggeredBy || deployment.provider);
+    await recordDeploymentFailureIncident(deployment, req.header('x-user') || deployment.triggeredBy || deployment.provider);
     realtime.broadcast({ type: 'deployment.created', payload: deployment });
     res.status(201).json({ deployment });
 });
 
-app.post('/webhooks/deployments/:token', (req, res) => {
+app.post('/webhooks/deployments/:token', async (req, res) => {
     if (String(req.header('x-github-event') || '').toLowerCase() === 'ping') {
         res.json({ ok: true, message: 'DevPilot deployment webhook is reachable.' });
         return;
     }
 
-    const project = findProjectByDeploymentWebhookToken(req.params.token);
+    const project = await findProjectByDeploymentWebhookToken(req.params.token);
     if (!project) {
         res.status(404).json({ error: 'Deployment webhook not found' });
         return;
@@ -507,30 +511,30 @@ app.post('/webhooks/deployments/:token', (req, res) => {
             ...deploymentFromWebhookPayload(project.id, req.body || {}),
             service: req.body?.service || req.body?.serviceName || project.serviceName || 'application-service',
         };
-    const deployment = createDeployment(deploymentInput);
+    const deployment = await createDeployment(deploymentInput);
     observeDeploymentCreated();
     recordActivity({
         actor: deployment.triggeredBy || deployment.provider,
         role: 'system',
         action: `deployment.added:${deployment.version}`,
     });
-    recordDeploymentFailureIncident(deployment, deployment.triggeredBy || deployment.provider);
+    await recordDeploymentFailureIncident(deployment, deployment.triggeredBy || deployment.provider);
     realtime.broadcast({ type: 'deployment.created', payload: deployment });
     res.status(201).json({ deployment });
 });
 
-app.get('/api/slos', (_req, res) => {
-    res.json({ slos: readStore().slos });
+app.get('/api/slos', async (_req, res) => {
+    res.json({ slos: (await readStoreAsync()).slos });
 });
 
-app.get('/api/incidents', (req, res) => {
+app.get('/api/incidents', async (req, res) => {
     const projectId = String(req.query.projectId || '');
-    const incidents = readStore().incidents.filter((incident) => !projectId || incident.projectId === projectId);
+    const incidents = (await readStoreAsync()).incidents.filter((incident) => !projectId || incident.projectId === projectId);
     res.json({ incidents });
 });
 
-app.post('/api/incidents', (req, res) => {
-    const incident = createIncident(req.body || {});
+app.post('/api/incidents', async (req, res) => {
+    const incident = await createIncident(req.body || {});
     observeIncidentCreated();
     recordActivity({
         actor: req.header('x-user') || 'support',
@@ -541,8 +545,8 @@ app.post('/api/incidents', (req, res) => {
     res.status(201).json({ incident });
 });
 
-app.patch('/api/incidents/:id', (req, res) => {
-    const incident = updateIncident(req.params.id, req.body || {});
+app.patch('/api/incidents/:id', async (req, res) => {
+    const incident = await updateIncident(req.params.id, req.body || {});
     if (!incident) {
         res.status(404).json({ error: 'Incident not found' });
         return;
@@ -556,8 +560,8 @@ app.patch('/api/incidents/:id', (req, res) => {
     res.json({ incident });
 });
 
-app.post('/api/tasks/reset', (_req, res) => {
-    const store = resetStore();
+app.post('/api/tasks/reset', async (_req, res) => {
+    const store = await resetStore();
     res.json({ tasks: store.tasks });
 });
 
@@ -623,7 +627,7 @@ app.get('/api/service-health', async (_req, res) => {
             timestamp: new Date().toISOString(),
         };
     }));
-    const projects = listProjects();
+    const projects = await listProjectsAsync();
     services
         .filter((service) => service.status === 'unhealthy')
         .forEach((service) => {
@@ -651,7 +655,7 @@ app.get('/metrics', async (_req, res) => {
     if (process.env.CHECK_PROJECTS_ON_METRICS !== 'false') {
         await runProjectHealthChecks().catch((error) => console.error('Project health check failed', error));
     }
-    res.type('text/plain').send(renderMetrics());
+    res.type('text/plain').send(await renderMetrics());
 });
 
 app.get('/activity', (_req, res) => {
@@ -669,10 +673,10 @@ app.post('/activity', (req, res) => {
     res.json(log);
 });
 
-app.get('/search', (req, res) => {
+app.get('/search', async (req, res) => {
     bump('searches');
     const query = String(req.query.q || '');
-    const results = searchRecords(query);
+    const results = await searchRecords(query);
     res.json({ query, results });
 });
 

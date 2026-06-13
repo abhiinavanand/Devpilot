@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { v4 as uuid } from 'uuid';
+import * as pgStore from './pgStore';
 
 const { DatabaseSync } = require('node:sqlite') as {
   DatabaseSync: new (path: string) => any;
@@ -189,6 +190,7 @@ const dbPath = path.join(dataDir, 'devpilot.sqlite');
 const now = () => new Date().toISOString();
 const json = (value: unknown) => JSON.stringify(value);
 const DEFAULT_PROJECT_NAME = 'DevPilot Platform';
+const usePostgres = Boolean(process.env.DATABASE_URL);
 const normalizeAppUrl = (value: unknown) => {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -537,6 +539,7 @@ const ensureProjectWebhookTokens = () => {
 };
 
 export const readStore = (): StoreState => ({
+  ...(usePostgres ? (() => { throw new Error('Use readStoreAsync when DATABASE_URL is configured'); })() : {}),
   projects: listProjects(),
   tasks: all<any>('SELECT * FROM tasks ORDER BY updated_at DESC').map(taskFromRow),
   deployments: all<any>('SELECT * FROM deployments ORDER BY started_at DESC').map(deploymentFromRow),
@@ -551,7 +554,10 @@ export const readStore = (): StoreState => ({
   projectHealthChecks: listProjectHealthChecks(),
 });
 
-export const resetStore = () => {
+export const readStoreAsync = async (): Promise<StoreState> => usePostgres ? pgStore.readStore() : readStore();
+
+export const resetStore = async () => {
+  if (usePostgres) return pgStore.resetStore();
   [
     'projects',
     'tasks',
@@ -571,6 +577,7 @@ export const resetStore = () => {
 };
 
 export const createTask = (input: Partial<Task>) => {
+  if (usePostgres) return pgStore.createTask(input) as any;
   const timestamp = now();
   const projectId = String(input.projectId || ensureDefaultProject());
   const task: Task = {
@@ -609,6 +616,7 @@ export const createTask = (input: Partial<Task>) => {
 };
 
 export const updateTask = (id: string, patch: Partial<Task>) => {
+  if (usePostgres) return pgStore.updateTask(id, patch) as any;
   const existing = get<any>('SELECT * FROM tasks WHERE id = ?', id);
   if (!existing) return undefined;
 
@@ -641,15 +649,19 @@ export const updateTask = (id: string, patch: Partial<Task>) => {
 };
 
 export const listProjects = (): Project[] =>
-  (ensureProjectWebhookTokens(), all<any>('SELECT * FROM projects ORDER BY updated_at DESC').map(projectFromRow));
+  (usePostgres ? (() => { throw new Error('Use listProjectsAsync when DATABASE_URL is configured'); })() : ensureProjectWebhookTokens(), all<any>('SELECT * FROM projects ORDER BY updated_at DESC').map(projectFromRow));
+
+export const listProjectsAsync = async (): Promise<Project[]> => usePostgres ? pgStore.listProjects() : listProjects();
 
 export const findProjectByDeploymentWebhookToken = (token: string): Project | undefined => {
+  if (usePostgres) return pgStore.findProjectByDeploymentWebhookToken(token) as any;
   ensureProjectWebhookTokens();
   const project = get<any>('SELECT * FROM projects WHERE deployment_webhook_token = ?', token);
   return project ? projectFromRow(project) : undefined;
 };
 
 export const createProject = (input: Partial<Project>) => {
+  if (usePostgres) return pgStore.createProject(input) as any;
   const timestamp = now();
   const project: Project = {
     id: uuid(),
@@ -682,6 +694,7 @@ export const createProject = (input: Partial<Project>) => {
 };
 
 export const updateProject = (id: string, patch: Partial<Project>) => {
+  if (usePostgres) return pgStore.updateProject(id, patch) as any;
   const existing = get<any>('SELECT * FROM projects WHERE id = ?', id);
   if (!existing) return undefined;
 
@@ -709,6 +722,7 @@ export const updateProject = (id: string, patch: Partial<Project>) => {
 };
 
 export const deleteProject = (id: string) => {
+  if (usePostgres) return pgStore.deleteProject(id) as any;
   const taskCount = get<{ count: number }>('SELECT COUNT(*) as count FROM tasks WHERE project_id = ?', id)?.count ?? 0;
   if (taskCount > 0) return false;
   const result = db.prepare('DELETE FROM projects WHERE id = ?').run(id);
@@ -716,11 +730,13 @@ export const deleteProject = (id: string) => {
 };
 
 export const deleteTask = (id: string) => {
+  if (usePostgres) return pgStore.deleteTask(id) as any;
   const result = db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
   return result.changes > 0;
 };
 
 export const createDeployment = (input: Partial<Deployment>) => {
+  if (usePostgres) return pgStore.createDeployment(input) as any;
   const existing = input.externalId
     ? get<any>('SELECT * FROM deployments WHERE project_id = ? AND external_id = ?', String(input.projectId || ''), String(input.externalId))
     : undefined;
@@ -785,6 +801,7 @@ export const createDeployment = (input: Partial<Deployment>) => {
 };
 
 export const createIncident = (input: Partial<Incident>) => {
+  if (usePostgres) return pgStore.createIncident(input) as any;
   const incident: Incident = {
     id: String(input.id || `INC-${Date.now()}`),
     projectId: String(input.projectId || ensureDefaultProject()),
@@ -816,6 +833,7 @@ export const createIncident = (input: Partial<Incident>) => {
 };
 
 export const updateIncident = (id: string, patch: Partial<Incident>) => {
+  if (usePostgres) return pgStore.updateIncident(id, patch) as any;
   const existing = get<any>('SELECT * FROM incidents WHERE id = ?', id);
   if (!existing) return undefined;
   const current = listIncidents().find((incident) => incident.id === id);
@@ -843,6 +861,7 @@ export const updateIncident = (id: string, patch: Partial<Incident>) => {
 };
 
 export const recordProjectHealthCheck = (input: Omit<ProjectHealthCheck, 'id' | 'checkedAt'> & { checkedAt?: string }) => {
+  if (usePostgres) return pgStore.recordProjectHealthCheck(input) as any;
   const check: ProjectHealthCheck = {
     id: uuid(),
     checkedAt: input.checkedAt || now(),
@@ -872,10 +891,12 @@ export const recordProjectHealthCheck = (input: Omit<ProjectHealthCheck, 'id' | 
 };
 
 export const listProjectHealthChecks = (projectId?: string): ProjectHealthCheck[] =>
-  (projectId
+  (usePostgres ? (() => { throw new Error('Use listProjectHealthChecksAsync when DATABASE_URL is configured'); })() : projectId
     ? all<any>('SELECT * FROM project_health_checks WHERE project_id = ? ORDER BY checked_at DESC', projectId)
     : all<any>('SELECT * FROM project_health_checks ORDER BY checked_at DESC')
   ).map(projectHealthCheckFromRow);
+
+export const listProjectHealthChecksAsync = async (projectId?: string): Promise<ProjectHealthCheck[]> => usePostgres ? pgStore.listProjectHealthChecks(projectId) : listProjectHealthChecks(projectId);
 
 export const upsertGitHubRepository = (repo: Omit<GitHubRepository, 'id' | 'lastSyncedAt'>) => {
   const existing = get<{ id: string }>('SELECT id FROM github_repositories WHERE full_name = ?', repo.fullName);
@@ -976,8 +997,9 @@ export const listKubernetesDeployments = (): KubernetesDeployment[] =>
     image: row.image,
   }));
 
-export const listIncidents = (): Incident[] =>
-  all<any>('SELECT * FROM incidents ORDER BY created_at DESC').map((row) => ({
+export const listIncidents = (): Incident[] => {
+  if (usePostgres) throw new Error('Use listIncidentsAsync when DATABASE_URL is configured');
+  return all<any>('SELECT * FROM incidents ORDER BY created_at DESC').map((row) => ({
     id: row.id,
     projectId: row.project_id,
     title: row.title,
@@ -989,6 +1011,9 @@ export const listIncidents = (): Incident[] =>
     resolvedAt: row.resolved_at,
     summary: row.summary,
   }));
+};
+
+export const listIncidentsAsync = async (): Promise<Incident[]> => usePostgres ? pgStore.listIncidents() : listIncidents();
 
 export const calculateDoraMetrics = (): DoraMetrics => {
   const deployments = readStore().deployments;
@@ -1043,6 +1068,7 @@ export const analyzeIncidents = (): IncidentAnalysis => {
 };
 
 export const databaseInfo = () => ({
+  ...(usePostgres ? pgStore.databaseInfo() : {
   engine: 'SQLite',
   path: dbPath,
   tables: [
@@ -1058,4 +1084,5 @@ export const databaseInfo = () => ({
     'kubernetes_deployments',
     'incidents',
   ],
+  }),
 });

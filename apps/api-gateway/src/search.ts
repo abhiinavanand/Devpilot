@@ -1,7 +1,7 @@
 import { cache } from './cache';
-import { readStore } from './store';
+import { readStoreAsync } from './store';
 
-export const searchRecords = (query: string) => {
+export const searchRecords = async (query: string) => {
   const normalizedQuery = query.trim().toLowerCase();
   const cacheKey = `search:${normalizedQuery}`;
   const cached = cache.get<string[]>(cacheKey);
@@ -9,7 +9,7 @@ export const searchRecords = (query: string) => {
 
   if (!normalizedQuery) return [];
 
-  const store = readStore();
+  const store = await readStoreAsync();
   const dataset = [
     ...store.tasks.map((task) => `${task.title} - ${task.status} - ${task.assignee}`),
     ...store.deployments.map((deployment) => `${deployment.service} ${deployment.version} - ${deployment.status}`),

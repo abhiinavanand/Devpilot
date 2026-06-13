@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
-import { readStore } from './store';
+import { readStoreAsync } from './store';
 
 type RequestMetric = {
   method: string;
@@ -57,8 +57,8 @@ export const prometheusMiddleware = (req: Request, res: Response, next: NextFunc
   next();
 };
 
-export const renderMetrics = () => {
-  const store = readStore();
+export const renderMetrics = async () => {
+  const store = await readStoreAsync();
   const grouped = new Map<string, RequestMetric[]>();
   const healthChecksByProject = new Map<string, typeof store.projectHealthChecks>();
 

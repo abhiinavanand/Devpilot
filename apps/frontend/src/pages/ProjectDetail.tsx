@@ -44,6 +44,29 @@ const webhookPlatformSlug = (platform: Project['deploymentPlatform']) => {
   if (platform === 'GitHub Pages') return 'github-pages';
   return platform.toLowerCase();
 };
+const resolveDeploymentLink = (project: Project, deployment: Deployment) => {
+  if (!project.appUrl && !deployment.deploymentUrl) return '';
+  if (!deployment.deploymentUrl) return project.appUrl || '';
+
+  try {
+    const deploymentHost = new URL(deployment.deploymentUrl).hostname.toLowerCase();
+    const projectHost = project.appUrl ? new URL(project.appUrl).hostname.toLowerCase() : '';
+
+    if (project.appUrl && project.deploymentPlatform === 'GitHub Pages' && !deploymentHost.endsWith('github.io')) {
+      return project.appUrl;
+    }
+    if (project.appUrl && project.deploymentPlatform !== 'Vercel' && (deploymentHost.endsWith('vercel.app') || deploymentHost.endsWith('vercel.com'))) {
+      return project.appUrl;
+    }
+    if (project.appUrl && projectHost && deploymentHost !== projectHost && project.deploymentPlatform !== 'Other') {
+      return project.appUrl;
+    }
+  } catch {
+    return project.appUrl || deployment.deploymentUrl;
+  }
+
+  return deployment.deploymentUrl;
+};
 
 type DeploymentDraft = {
   provider: Deployment['provider'];
@@ -304,7 +327,7 @@ export const ProjectDetail = () => {
         <div className="space-y-6">
           <DeploymentWebhookSetup webhookUrl={deploymentWebhookUrl} copied={copiedWebhook} onCopy={copyDeploymentWebhook} platform={effectiveDeploymentPlatform} />
           <DeploymentForm draft={deploymentDraft} setDraft={setDeploymentDraft} onSubmit={createDeployment} />
-          <DeploymentTable deployments={deployments} />
+          <DeploymentTable deployments={deployments} project={project} />
         </div>
       ) : null}
 
@@ -348,7 +371,7 @@ const TaskTable = ({ tasks, onEdit, onDelete, onStatus }: { tasks: Task[]; onEdi
   </div>
 );
 
-const DeploymentTable = ({ deployments }: { deployments: Deployment[] }) => (
+const DeploymentTable = ({ deployments, project }: { deployments: Deployment[]; project: Project }) => (
   <div className="card overflow-x-auto">
     <table className="data-table"><thead><tr><th>Provider</th><th>Service</th><th>Version</th><th>Environment</th><th>Status</th><th>Branch</th><th>Commit</th><th>Deployed At</th><th>Link</th></tr></thead><tbody>
       {deployments.map((deployment) => (
@@ -361,7 +384,7 @@ const DeploymentTable = ({ deployments }: { deployments: Deployment[] }) => (
           <td>{deployment.branch || ''}</td>
           <td>{deployment.commitSha ? deployment.commitSha.slice(0, 7) : ''}</td>
           <td>{new Date(deployment.startedAt).toLocaleString()}</td>
-          <td>{deployment.deploymentUrl ? <a href={deployment.deploymentUrl} target="_blank" rel="noreferrer">Open</a> : ''}</td>
+          <td>{resolveDeploymentLink(project, deployment) ? <a href={resolveDeploymentLink(project, deployment)} target="_blank" rel="noreferrer">Open</a> : ''}</td>
         </tr>
       ))}
       {!deployments.length ? <tr><td colSpan={9}>No deployments recorded for this project.</td></tr> : null}

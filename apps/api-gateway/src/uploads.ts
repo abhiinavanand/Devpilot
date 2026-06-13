@@ -3,7 +3,11 @@ import path from 'path';
 import fs from 'fs';
 import type { Request } from 'express';
 
-const uploadDir = path.resolve(process.cwd(), 'uploads');
+const uploadDir = process.env.UPLOAD_DIR
+  ? path.resolve(process.env.UPLOAD_DIR)
+  : process.env.VERCEL
+    ? path.join('/tmp', 'devpilot-uploads')
+    : path.resolve(process.cwd(), 'uploads');
 fs.mkdirSync(uploadDir, { recursive: true });
 
 const storage = multer.diskStorage({

@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: devpilot-api-gateway
+    runtime: docker
+    plan: free
+    rootDir: apps/api-gateway
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    disk:
+      name: devpilot-api-data
+      mountPath: /var/data/devpilot
+      sizeGB: 1
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: DEVPILOT_DATA_DIR
+        value: /var/data/devpilot
+      - key: AUTH_HEALTH_URL
+        value: http://localhost:3000/auth/health
+      - key: PROJECT_HEALTH_URL
+        value: http://localhost:3000/project/health
+      - key: ANALYTICS_HEALTH_URL
+        value: http://localhost:3000/analytics/health
+      - key: NOTIFICATION_HEALTH_URL
+        value: http://localhost:3000/notification/health

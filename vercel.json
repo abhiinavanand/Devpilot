@@ -1,0 +1,56 @@
+{
+  "version": 2,
+  "installCommand": "npm install && npm install --prefix apps/frontend && npm install --prefix apps/api-gateway",
+  "buildCommand": "npm --prefix apps/frontend run build",
+  "outputDirectory": "apps/frontend/dist",
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api"
+    },
+    {
+      "source": "/webhooks/(.*)",
+      "destination": "/api"
+    },
+    {
+      "source": "/metrics",
+      "destination": "/api"
+    },
+    {
+      "source": "/health",
+      "destination": "/api"
+    },
+    {
+      "source": "/gateway/health",
+      "destination": "/api"
+    },
+    {
+      "source": "/auth/health",
+      "destination": "/api"
+    },
+    {
+      "source": "/project/health",
+      "destination": "/api"
+    },
+    {
+      "source": "/analytics/health",
+      "destination": "/api"
+    },
+    {
+      "source": "/notification/health",
+      "destination": "/api"
+    },
+    {
+      "source": "/activity",
+      "destination": "/api"
+    },
+    {
+      "source": "/search",
+      "destination": "/api"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

@@ -179,7 +179,11 @@ export type StoreState = {
   projectHealthChecks: ProjectHealthCheck[];
 };
 
-const dataDir = path.resolve(__dirname, '..', '.data');
+const dataDir = process.env.DEVPILOT_DATA_DIR
+  ? path.resolve(process.env.DEVPILOT_DATA_DIR)
+  : process.env.VERCEL
+    ? path.join('/tmp', 'devpilot-ai')
+    : path.resolve(__dirname, '..', '.data');
 const dbPath = path.join(dataDir, 'devpilot.sqlite');
 
 const now = () => new Date().toISOString();

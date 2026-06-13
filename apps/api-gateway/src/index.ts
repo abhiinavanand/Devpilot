@@ -34,10 +34,11 @@ import {
 import type { Deployment } from './store';
 import { observeDeploymentCreated, observeIncidentCreated, observeProjectCreated, observeTaskCreated, prometheusMiddleware, renderMetrics, requestHealthSummary } from './metrics';
 
-const app = express();
+export const app = express();
 const PORT = process.env.PORT || 3000;
 const server = http.createServer(app);
 const realtime = createRealtimeServer(server);
+const isServerless = process.env.VERCEL === '1';
 
 const normalizeDeploymentStatus = (status: unknown): Deployment['status'] => {
     const value = String(status || '').trim().toLowerCase();
@@ -243,6 +244,7 @@ const limiter = rateLimit({
 });
 
 // Middleware
+app.set('trust proxy', 1);
 app.use(cors());
 app.use(json());
 app.use(limiter);
@@ -613,7 +615,10 @@ app.get('/api/monitoring/summary', (_req, res) => {
     res.json(requestHealthSummary());
 });
 
-app.get('/metrics', (_req, res) => {
+app.get('/metrics', async (_req, res) => {
+    if (process.env.CHECK_PROJECTS_ON_METRICS !== 'false') {
+        await runProjectHealthChecks().catch((error) => console.error('Project health check failed', error));
+    }
     res.type('text/plain').send(renderMetrics());
 });
 
@@ -682,14 +687,18 @@ if (process.env.ENABLE_SERVICE_PROXY === 'true') {
     });
 }
 
-startJobWorker(realtime.broadcast);
-runProjectHealthChecks().catch((error) => console.error('Project health check failed', error));
-setInterval(() => {
+if (!isServerless) {
+    startJobWorker(realtime.broadcast);
     runProjectHealthChecks().catch((error) => console.error('Project health check failed', error));
-}, Number(process.env.PROJECT_HEALTH_CHECK_INTERVAL_MS || 30000));
+    setInterval(() => {
+        runProjectHealthChecks().catch((error) => console.error('Project health check failed', error));
+    }, Number(process.env.PROJECT_HEALTH_CHECK_INTERVAL_MS || 30000));
 
-// Start the server
-server.listen(PORT, () => {
-    console.log(`API Gateway is running on http://localhost:${PORT}`);
-    // NOTE(git:perf/gateway): add connection pooling + keep-alive tuning
-});
+    // Start the server
+    server.listen(PORT, () => {
+        console.log(`API Gateway is running on http://localhost:${PORT}`);
+        // NOTE(git:perf/gateway): add connection pooling + keep-alive tuning
+    });
+}
+
+export default app;

@@ -10,7 +10,11 @@ export type ActivityLog = {
   timestamp: string;
 };
 
-const dataDir = path.resolve(__dirname, '..', '.data');
+const dataDir = process.env.DEVPILOT_DATA_DIR
+  ? path.resolve(process.env.DEVPILOT_DATA_DIR)
+  : process.env.VERCEL
+    ? path.join('/tmp', 'devpilot-ai')
+    : path.resolve(__dirname, '..', '.data');
 const activityPath = path.join(dataDir, 'activity.json');
 
 if (!fs.existsSync(dataDir)) {

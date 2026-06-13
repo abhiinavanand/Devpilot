@@ -1,4 +1,13 @@
-export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000';
+const isLocalBrowser =
+  typeof window !== 'undefined' &&
+  ['localhost', '127.0.0.1'].includes(window.location.hostname);
+
+export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? (isLocalBrowser ? 'http://localhost:3000' : '');
+
+export const absoluteApiUrl = (path: string) => {
+  const base = apiBaseUrl || (typeof window !== 'undefined' ? window.location.origin : '');
+  return new URL(path, base).toString();
+};
 
 type RequestOptions = Omit<RequestInit, 'body'> & { body?: unknown };
 

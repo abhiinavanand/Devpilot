@@ -3,7 +3,7 @@ import type { DragEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import { Copy, ExternalLink, Plus } from 'lucide-react';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { apiBaseUrl } from '../api/client';
+import { absoluteApiUrl } from '../api/client';
 import { workspaceApi, type Deployment, type Incident, type MonitoringSummary, type Priority, type Project, type ProjectHealthCheck, type ServiceHealth, type Task, type TaskStatus } from '../api/workspace';
 import { useRealtimeListener } from '../api/realtime';
 
@@ -97,7 +97,7 @@ export const ProjectDetail = () => {
     openIncidents: incidents.filter((incident) => incident.status !== 'Resolved').length,
     deployments: deployments.length,
   }), [tasks, incidents, deployments]);
-  const deploymentWebhookUrl = project?.deploymentWebhookToken ? `${apiBaseUrl}/webhooks/deployments/${project.deploymentWebhookToken}` : '';
+  const deploymentWebhookUrl = project?.deploymentWebhookToken ? absoluteApiUrl(`/webhooks/deployments/${project.deploymentWebhookToken}`) : '';
 
   const copyDeploymentWebhook = async () => {
     if (!deploymentWebhookUrl) return;

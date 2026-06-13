@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { apiBaseUrl } from '../api/client';
 
 export const SearchPanel = () => {
   const [query, setQuery] = useState('');
@@ -6,7 +7,7 @@ export const SearchPanel = () => {
 
   const runSearch = async () => {
     if (!query.trim()) return;
-    const res = await fetch(`http://localhost:3000/search?q=${encodeURIComponent(query)}`);
+    const res = await fetch(`${apiBaseUrl}/search?q=${encodeURIComponent(query)}`);
     const data = await res.json();
     setResults(data.results || []);
   };

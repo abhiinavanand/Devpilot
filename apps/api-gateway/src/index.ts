@@ -81,6 +81,15 @@ const normalizeDeploymentProvider = (provider: unknown): Deployment['provider'] 
     return providers[value] || (value ? 'Other' : 'Manual');
 };
 
+const deploymentProviderFromPlatform = (platform: string): Deployment['provider'] => {
+    const value = String(platform || '').trim().toLowerCase();
+    if (value === 'github-pages' || value === 'github') return 'GitHub Actions';
+    if (value === 'vercel') return 'Vercel';
+    if (value === 'railway') return 'Railway';
+    if (value === 'render') return 'Render';
+    return 'Other';
+};
+
 const normalizeDeploymentEnvironment = (environment: unknown): Deployment['environment'] =>
     String(environment || '').trim().toLowerCase() === 'production' ? 'production' : 'staging';
 
@@ -677,7 +686,7 @@ app.post('/api/projects/:projectId/deployments/webhook', async (req, res) => {
     res.status(201).json({ deployment });
 });
 
-app.post('/webhooks/deployments/:token', async (req, res) => {
+const handleDeploymentWebhook = async (req: express.Request, res: express.Response) => {
     if (String(req.header('x-github-event') || '').toLowerCase() === 'ping') {
         res.json({ ok: true, message: 'DevPilot deployment webhook is reachable.' });
         return;
@@ -690,7 +699,10 @@ app.post('/webhooks/deployments/:token', async (req, res) => {
     }
 
     const githubEvent = String(req.header('x-github-event') || '').toLowerCase();
-    const provider = normalizeDeploymentProvider(req.body?.provider || req.body?.source || req.body?.type?.split('.')?.[0]);
+    const rawProvider = req.body?.provider || req.body?.source || req.body?.type?.split('.')?.[0];
+    const provider = rawProvider
+        ? normalizeDeploymentProvider(rawProvider)
+        : deploymentProviderFromPlatform(req.params.platform || project.deploymentPlatform);
     const githubDeployment = deploymentFromGitHubEvent(project.id, project.serviceName, githubEvent, req.body || {});
     const deploymentInput = githubDeployment
         ? githubDeployment
@@ -710,7 +722,10 @@ app.post('/webhooks/deployments/:token', async (req, res) => {
     await recordDeploymentFailureIncident(deployment, deployment.triggeredBy || deployment.provider);
     realtime.broadcast({ type: 'deployment.created', payload: deployment });
     res.status(201).json({ deployment });
-});
+};
+
+app.post('/webhooks/deployments/:token', handleDeploymentWebhook);
+app.post('/webhooks/deployments/:platform/:token', handleDeploymentWebhook);
 
 app.get('/api/slos', async (_req, res) => {
     res.json({ slos: (await readStoreAsync()).slos });

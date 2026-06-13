@@ -40,6 +40,10 @@ const providerInstructions: Record<Project['deploymentPlatform'], string> = {
   Render: 'Render setup: Service Settings, Notifications or outgoing webhook, paste this URL, then enable deploy succeeded and deploy failed events.',
   Other: 'If your platform supports outgoing webhooks, paste this URL and send deployment status, commit, branch, and environment details to DevPilot.',
 };
+const webhookPlatformSlug = (platform: Project['deploymentPlatform']) => {
+  if (platform === 'GitHub Pages') return 'github-pages';
+  return platform.toLowerCase();
+};
 
 type DeploymentDraft = {
   provider: Deployment['provider'];
@@ -130,7 +134,9 @@ export const ProjectDetail = () => {
     openIncidents: incidents.filter((incident) => incident.status !== 'Resolved').length,
     deployments: deployments.length,
   }), [tasks, incidents, deployments]);
-  const deploymentWebhookUrl = project?.deploymentWebhookToken ? absoluteApiUrl(`/webhooks/deployments/${project.deploymentWebhookToken}`) : '';
+  const deploymentWebhookUrl = project?.deploymentWebhookToken
+    ? absoluteApiUrl(`/webhooks/deployments/${webhookPlatformSlug(project.deploymentPlatform || deploymentPlatformDraft)}/${project.deploymentWebhookToken}`)
+    : '';
 
   const copyDeploymentWebhook = async () => {
     if (!deploymentWebhookUrl) return;

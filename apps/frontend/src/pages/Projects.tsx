@@ -3,7 +3,15 @@ import { Link } from 'react-router-dom';
 import { Edit3, ExternalLink, Plus, Trash2 } from 'lucide-react';
 import { workspaceApi, type Project } from '../api/workspace';
 
-const PROJECT_CACHE_KEY = 'devpilot.projects.cache';
+const readStoredUser = () => {
+  try {
+    return JSON.parse(localStorage.getItem('devpilot.user') || 'null') as { name?: string; email?: string } | null;
+  } catch {
+    return null;
+  }
+};
+
+const projectCacheKey = () => `devpilot.projects.cache:${String(readStoredUser()?.email || 'guest').toLowerCase()}`;
 const normalizeUrlInput = (value: string) => {
   const trimmed = value.trim();
   return trimmed && !/^https?:\/\//i.test(trimmed) ? `https://${trimmed}` : trimmed;
@@ -19,9 +27,10 @@ const emptyProject: Pick<Project, 'name' | 'description' | 'owner' | 'serviceNam
 };
 
 export const Projects = () => {
+  const currentUser = readStoredUser();
   const [projects, setProjects] = useState<Project[]>(() => {
     try {
-      const cached = localStorage.getItem(PROJECT_CACHE_KEY);
+      const cached = localStorage.getItem(projectCacheKey());
       return cached ? JSON.parse(cached) : [];
     } catch {
       return [];
@@ -37,7 +46,7 @@ export const Projects = () => {
       .projects()
       .then((data) => {
         setProjects(data.projects);
-        localStorage.setItem(PROJECT_CACHE_KEY, JSON.stringify(data.projects));
+        localStorage.setItem(projectCacheKey(), JSON.stringify(data.projects));
         setError('');
       })
       .catch(() => setError('Unable to load projects.'))
@@ -46,6 +55,12 @@ export const Projects = () => {
   useEffect(() => {
     loadProjects();
   }, []);
+
+  useEffect(() => {
+    if (!editing && !draft.owner && currentUser?.name) {
+      setDraft((current) => ({ ...current, owner: current.owner || currentUser.name || '' }));
+    }
+  }, [currentUser?.name, draft.owner, editing]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -58,15 +73,15 @@ export const Projects = () => {
       const { project } = await workspaceApi.updateProject(editing.id, { ...draft, appUrl: normalizeUrlInput(draft.appUrl) });
       setProjects((current) => {
         const next = current.map((item) => (item.id === project.id ? project : item));
-        localStorage.setItem(PROJECT_CACHE_KEY, JSON.stringify(next));
+        localStorage.setItem(projectCacheKey(), JSON.stringify(next));
         return next;
       });
       setEditing(null);
     } else {
-      const { project } = await workspaceApi.createProject({ ...draft, appUrl: normalizeUrlInput(draft.appUrl) });
+      const { project } = await workspaceApi.createProject({ ...draft, owner: draft.owner || currentUser?.name || '', appUrl: normalizeUrlInput(draft.appUrl) });
       setProjects((current) => {
         const next = [project, ...current];
-        localStorage.setItem(PROJECT_CACHE_KEY, JSON.stringify(next));
+        localStorage.setItem(projectCacheKey(), JSON.stringify(next));
         return next;
       });
     }
@@ -83,7 +98,7 @@ export const Projects = () => {
     await workspaceApi.deleteProject(project.id);
     setProjects((current) => {
       const next = current.filter((item) => item.id !== project.id);
-      localStorage.setItem(PROJECT_CACHE_KEY, JSON.stringify(next));
+      localStorage.setItem(projectCacheKey(), JSON.stringify(next));
       return next;
     });
   };

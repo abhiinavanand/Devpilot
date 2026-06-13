@@ -48,6 +48,14 @@ const query = async (text: string, params: unknown[] = []) => {
   return pool.query(text, params);
 };
 
+const ensureProjectOwnerEmailColumn = async () => {
+  try {
+    await pool?.query(`ALTER TABLE projects ADD COLUMN owner_email TEXT NOT NULL DEFAULT ''`);
+  } catch (error: any) {
+    if (error?.code !== '42701') throw error;
+  }
+};
+
 export const init = async () => {
   if (!pool) return;
   if (initialized) return initialized;
@@ -58,6 +66,7 @@ export const init = async () => {
         name TEXT NOT NULL,
         description TEXT NOT NULL,
         owner TEXT NOT NULL,
+        owner_email TEXT NOT NULL DEFAULT '',
         service_name TEXT NOT NULL DEFAULT '',
         app_url TEXT NOT NULL DEFAULT '',
         deployment_webhook_token TEXT NOT NULL DEFAULT '',
@@ -123,6 +132,7 @@ export const init = async () => {
         error TEXT NOT NULL DEFAULT ''
       );
     `);
+    await ensureProjectOwnerEmailColumn();
   })();
   return initialized;
 };
@@ -132,6 +142,7 @@ const projectFromRow = (row: any): Project => ({
   name: row.name,
   description: row.description,
   owner: row.owner,
+  ownerEmail: row.owner_email || '',
   serviceName: row.service_name || '',
   appUrl: row.app_url || '',
   deploymentWebhookToken: row.deployment_webhook_token || '',
@@ -227,6 +238,7 @@ export const createProject = async (input: Partial<Project>) => {
     name: String(input.name || 'Untitled project'),
     description: String(input.description || ''),
     owner: String(input.owner || 'Platform Team'),
+    ownerEmail: String(input.ownerEmail || ''),
     serviceName: String(input.serviceName || ''),
     appUrl: normalizeAppUrl(input.appUrl),
     deploymentWebhookToken: String(input.deploymentWebhookToken || uuid()),
@@ -235,9 +247,9 @@ export const createProject = async (input: Partial<Project>) => {
     updatedAt: timestamp,
   };
   await query(
-    `INSERT INTO projects (id, name, description, owner, service_name, app_url, deployment_webhook_token, status, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-    [project.id, project.name, project.description, project.owner, project.serviceName, project.appUrl, project.deploymentWebhookToken, project.status, project.createdAt, project.updatedAt],
+    `INSERT INTO projects (id, name, description, owner, owner_email, service_name, app_url, deployment_webhook_token, status, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+    [project.id, project.name, project.description, project.owner, project.ownerEmail, project.serviceName, project.appUrl, project.deploymentWebhookToken, project.status, project.createdAt, project.updatedAt],
   );
   return project;
 };
@@ -249,8 +261,8 @@ export const updateProject = async (id: string, patch: Partial<Project>) => {
   const updated = { ...current, ...patch, id, updatedAt: now() };
   updated.appUrl = normalizeAppUrl(updated.appUrl);
   await query(
-    `UPDATE projects SET name=$1, description=$2, owner=$3, service_name=$4, app_url=$5, deployment_webhook_token=$6, status=$7, updated_at=$8 WHERE id=$9`,
-    [updated.name, updated.description, updated.owner, updated.serviceName, updated.appUrl, updated.deploymentWebhookToken || uuid(), updated.status, updated.updatedAt, id],
+    `UPDATE projects SET name=$1, description=$2, owner=$3, owner_email=$4, service_name=$5, app_url=$6, deployment_webhook_token=$7, status=$8, updated_at=$9 WHERE id=$10`,
+    [updated.name, updated.description, updated.owner, updated.ownerEmail, updated.serviceName, updated.appUrl, updated.deploymentWebhookToken || uuid(), updated.status, updated.updatedAt, id],
   );
   return updated;
 };

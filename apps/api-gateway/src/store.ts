@@ -15,6 +15,7 @@ export type Project = {
   name: string;
   description: string;
   owner: string;
+  ownerEmail: string;
   serviceName: string;
   appUrl: string;
   deploymentWebhookToken: string;
@@ -240,6 +241,7 @@ db.exec(`
     name TEXT NOT NULL,
     description TEXT NOT NULL,
     owner TEXT NOT NULL,
+    owner_email TEXT NOT NULL DEFAULT '',
     service_name TEXT NOT NULL DEFAULT '',
     app_url TEXT NOT NULL DEFAULT '',
     deployment_webhook_token TEXT NOT NULL DEFAULT '',
@@ -391,6 +393,12 @@ try {
 }
 
 try {
+  run(`ALTER TABLE projects ADD COLUMN owner_email TEXT NOT NULL DEFAULT ''`);
+} catch {
+  // Column already exists in upgraded databases.
+}
+
+try {
   run(`ALTER TABLE projects ADD COLUMN deployment_webhook_token TEXT NOT NULL DEFAULT ''`);
 } catch {
   // Column already exists in upgraded databases.
@@ -448,6 +456,7 @@ function ensureDefaultProject() {
     DEFAULT_PROJECT_NAME,
     'Core SaaS workspace for project management and DevOps observability.',
     'Platform Team',
+    '',
     'api-gateway',
     'http://localhost:3000/health',
     uuid(),
@@ -513,6 +522,7 @@ const projectFromRow = (row: any): Project => ({
   name: row.name,
   description: row.description,
   owner: row.owner,
+  ownerEmail: row.owner_email || '',
   serviceName: row.service_name || '',
   appUrl: row.app_url || '',
   deploymentWebhookToken: row.deployment_webhook_token || '',
@@ -668,6 +678,7 @@ export const createProject = (input: Partial<Project>) => {
     name: String(input.name || 'Untitled project'),
     description: String(input.description || ''),
     owner: String(input.owner || 'Platform Team'),
+    ownerEmail: String(input.ownerEmail || ''),
     serviceName: String(input.serviceName || ''),
     appUrl: normalizeAppUrl(input.appUrl),
     deploymentWebhookToken: String(input.deploymentWebhookToken || uuid()),
@@ -677,12 +688,13 @@ export const createProject = (input: Partial<Project>) => {
   };
 
   run(
-    `INSERT INTO projects (id, name, description, owner, service_name, app_url, deployment_webhook_token, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO projects (id, name, description, owner, owner_email, service_name, app_url, deployment_webhook_token, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     project.id,
     project.name,
     project.description,
     project.owner,
+    project.ownerEmail,
     project.serviceName,
     project.appUrl,
     project.deploymentWebhookToken,
@@ -707,10 +719,11 @@ export const updateProject = (id: string, patch: Partial<Project>) => {
   updated.appUrl = normalizeAppUrl(updated.appUrl);
 
   run(
-    `UPDATE projects SET name = ?, description = ?, owner = ?, service_name = ?, app_url = ?, deployment_webhook_token = ?, status = ?, updated_at = ? WHERE id = ?`,
+    `UPDATE projects SET name = ?, description = ?, owner = ?, owner_email = ?, service_name = ?, app_url = ?, deployment_webhook_token = ?, status = ?, updated_at = ? WHERE id = ?`,
     updated.name,
     updated.description,
     updated.owner,
+    updated.ownerEmail,
     updated.serviceName,
     updated.appUrl,
     updated.deploymentWebhookToken || uuid(),

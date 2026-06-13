@@ -8,6 +8,7 @@ export type Project = {
   name: string;
   description: string;
   owner: string;
+  ownerEmail?: string;
   serviceName: string;
   appUrl: string;
   deploymentWebhookToken: string;

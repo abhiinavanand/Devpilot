@@ -11,10 +11,27 @@ export const absoluteApiUrl = (path: string) => {
 
 type RequestOptions = Omit<RequestInit, 'body'> & { body?: unknown };
 
+const readStoredUser = () => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const user = JSON.parse(localStorage.getItem('devpilot.user') || 'null');
+    return user && typeof user.email === 'string' ? user : null;
+  } catch {
+    return null;
+  }
+};
+
 const request = async <T>(path: string, options: RequestOptions = {}) => {
   const headers = new Headers(options.headers);
   if (!headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
+  }
+  const user = readStoredUser();
+  if (user?.name) {
+    headers.set('x-user', String(user.name));
+  }
+  if (user?.email) {
+    headers.set('x-user-email', String(user.email).trim().toLowerCase());
   }
 
   const response = await fetch(`${apiBaseUrl}${path}`, {

@@ -45,6 +45,19 @@ const server = http.createServer(app);
 const realtime = createRealtimeServer(server);
 const isServerless = process.env.VERCEL === '1';
 
+const requesterEmail = (req: express.Request) => String(req.header('x-user-email') || '').trim().toLowerCase();
+const requesterName = (req: express.Request) => String(req.header('x-user') || '').trim();
+const projectOwnedBy = (project: Project, email: string) => Boolean(email) && (project.ownerEmail || '').trim().toLowerCase() === email;
+const requireRequesterEmail = (req: express.Request, res: express.Response) => {
+    const email = requesterEmail(req);
+    if (!email) {
+        res.status(401).json({ error: 'Login required' });
+        return undefined;
+    }
+    return email;
+};
+const ownedProjects = (projects: Project[], email: string) => projects.filter((project) => projectOwnedBy(project, email));
+
 const normalizeDeploymentStatus = (status: unknown): Deployment['status'] => {
     const value = String(status || '').trim().toLowerCase();
     if (['success', 'succeeded', 'ready', 'completed', 'complete'].includes(value)) return 'Succeeded';
@@ -374,13 +387,21 @@ app.get('/', (_req, res) => {
 });
 
 app.get('/api/dashboard', async (_req, res) => {
+    const email = requireRequesterEmail(_req, res);
+    if (!email) return;
     const store = await readStoreAsync();
+    const projects = ownedProjects(store.projects, email);
+    const projectIds = new Set(projects.map((project) => project.id));
+    const tasks = store.tasks.filter((task) => projectIds.has(task.projectId));
+    const incidents = store.incidents.filter((incident) => projectIds.has(incident.projectId));
+    const deployments = store.deployments.filter((deployment) => projectIds.has(deployment.projectId));
+    const healthChecks = store.projectHealthChecks.filter((check) => projectIds.has(check.projectId));
     const oneWeekAgo = Date.now() - 7 * 86400000;
-    const completedTasks = store.tasks.filter((task) => task.status === 'DONE').length;
-    const openTrackedIncidents = store.incidents.filter((incident) => incident.status !== 'Resolved').length;
-    const deploymentsThisWeek = store.deployments.filter((deployment) => new Date(deployment.startedAt).getTime() >= oneWeekAgo).length;
+    const completedTasks = tasks.filter((task) => task.status === 'DONE').length;
+    const openTrackedIncidents = incidents.filter((incident) => incident.status !== 'Resolved').length;
+    const deploymentsThisWeek = deployments.filter((deployment) => new Date(deployment.startedAt).getTime() >= oneWeekAgo).length;
     const latestHealthByProject = new Map<string, ProjectHealthCheck>();
-    store.projectHealthChecks.forEach((check) => {
+    healthChecks.forEach((check) => {
         if (!latestHealthByProject.has(check.projectId)) {
             latestHealthByProject.set(check.projectId, check);
         }
@@ -388,20 +409,20 @@ app.get('/api/dashboard', async (_req, res) => {
 
     res.json({
         metrics: [
-            { label: 'Total Projects', value: String(store.projects.length) },
-            { label: 'Open Tasks', value: String(store.tasks.filter((task) => task.status !== 'DONE').length) },
+            { label: 'Total Projects', value: String(projects.length) },
+            { label: 'Open Tasks', value: String(tasks.filter((task) => task.status !== 'DONE').length) },
             { label: 'Completed Tasks', value: String(completedTasks) },
             { label: 'Open Incidents', value: String(openTrackedIncidents) },
             { label: 'Deployments This Week', value: String(deploymentsThisWeek) },
         ],
-        timeline: store.deployments.map((deployment) => ({
+        timeline: deployments.map((deployment) => ({
             title: `${deployment.service} ${deployment.status}`,
             owner: deployment.environment,
             time: new Date(deployment.startedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
         })),
-        deployments: store.deployments.slice(0, 5),
-        incidents: store.incidents.filter((incident) => incident.status !== 'Resolved').slice(0, 5),
-        projectHealth: store.projects.map((project) => {
+        deployments: deployments.slice(0, 5),
+        incidents: incidents.filter((incident) => incident.status !== 'Resolved').slice(0, 5),
+        projectHealth: projects.map((project) => {
             const latest = latestHealthByProject.get(project.id);
             return {
                 projectId: project.id,
@@ -422,8 +443,10 @@ app.get('/api/database', (_req, res) => {
 });
 
 app.get('/api/projects', async (_req, res) => {
+    const email = requireRequesterEmail(_req, res);
+    if (!email) return;
     const store = await readStoreAsync();
-    const projects = (await listProjectsAsync()).map((project) => ({
+    const projects = ownedProjects(await listProjectsAsync(), email).map((project) => ({
         ...project,
         taskCount: store.tasks.filter((task) => task.projectId === project.id).length,
         openTasks: store.tasks.filter((task) => task.projectId === project.id && task.status !== 'DONE').length,
@@ -433,10 +456,12 @@ app.get('/api/projects', async (_req, res) => {
 });
 
 app.post('/api/projects', async (req, res) => {
-    const project = await createProject(req.body || {});
+    const email = requireRequesterEmail(req, res);
+    if (!email) return;
+    const project = await createProject({ ...(req.body || {}), owner: req.body?.owner || requesterName(req) || 'Workspace Owner', ownerEmail: email });
     observeProjectCreated();
     recordActivity({
-        actor: req.header('x-user') || 'product',
+        actor: requesterName(req) || 'product',
         role: getRole(req),
         action: `project.created:${project.name}`,
     });
@@ -445,6 +470,13 @@ app.post('/api/projects', async (req, res) => {
 });
 
 app.patch('/api/projects/:id', async (req, res) => {
+    const email = requireRequesterEmail(req, res);
+    if (!email) return;
+    const current = (await listProjectsAsync()).find((item) => item.id === req.params.id);
+    if (!current || !projectOwnedBy(current, email)) {
+        res.status(404).json({ error: 'Project not found' });
+        return;
+    }
     const project = await updateProject(req.params.id, req.body || {});
     if (!project) {
         res.status(404).json({ error: 'Project not found' });
@@ -463,6 +495,13 @@ app.patch('/api/projects/:id', async (req, res) => {
 });
 
 app.delete('/api/projects/:id', async (req, res) => {
+    const email = requireRequesterEmail(req, res);
+    if (!email) return;
+    const current = (await listProjectsAsync()).find((item) => item.id === req.params.id);
+    if (!current || !projectOwnedBy(current, email)) {
+        res.status(404).json({ error: 'Project not found' });
+        return;
+    }
     const deleted = await deleteProject(req.params.id);
     if (!deleted) {
         res.status(409).json({ error: 'Project still has tasks or does not exist' });
@@ -472,14 +511,24 @@ app.delete('/api/projects/:id', async (req, res) => {
 });
 
 app.get('/api/projects/:projectId/tasks', async (req, res) => {
-    const tasks = (await readStoreAsync()).tasks.filter((task) => task.projectId === req.params.projectId);
+    const email = requireRequesterEmail(req, res);
+    if (!email) return;
+    const store = await readStoreAsync();
+    const project = store.projects.find((item) => item.id === req.params.projectId);
+    if (!project || !projectOwnedBy(project, email)) {
+        res.status(404).json({ error: 'Project not found' });
+        return;
+    }
+    const tasks = store.tasks.filter((task) => task.projectId === req.params.projectId);
     res.json({ tasks });
 });
 
 app.get('/api/projects/:projectId/summary', async (req, res) => {
+    const email = requireRequesterEmail(req, res);
+    if (!email) return;
     const store = await readStoreAsync();
     const project = store.projects.find((item) => item.id === req.params.projectId);
-    if (!project) {
+    if (!project || !projectOwnedBy(project, email)) {
         res.status(404).json({ error: 'Project not found' });
         return;
     }
@@ -492,16 +541,34 @@ app.get('/api/projects/:projectId/summary', async (req, res) => {
 });
 
 app.get('/api/projects/:projectId/health-checks', async (req, res) => {
+    const email = requireRequesterEmail(req, res);
+    if (!email) return;
+    const project = (await listProjectsAsync()).find((item) => item.id === req.params.projectId);
+    if (!project || !projectOwnedBy(project, email)) {
+        res.status(404).json({ error: 'Project not found' });
+        return;
+    }
     res.json({ healthChecks: (await listProjectHealthChecksAsync(req.params.projectId)).slice(0, 50) });
 });
 
 app.get('/api/tasks', async (req, res) => {
+    const email = requireRequesterEmail(req, res);
+    if (!email) return;
     const projectId = String(req.query.projectId || '');
-    const tasks = (await readStoreAsync()).tasks.filter((task) => !projectId || task.projectId === projectId);
+    const store = await readStoreAsync();
+    const projectIds = new Set(ownedProjects(store.projects, email).map((project) => project.id));
+    const tasks = store.tasks.filter((task) => projectIds.has(task.projectId) && (!projectId || task.projectId === projectId));
     res.json({ tasks });
 });
 
 app.post('/api/tasks', async (req, res) => {
+    const email = requireRequesterEmail(req, res);
+    if (!email) return;
+    const project = (await listProjectsAsync()).find((item) => item.id === String(req.body?.projectId || ''));
+    if (!project || !projectOwnedBy(project, email)) {
+        res.status(404).json({ error: 'Project not found' });
+        return;
+    }
     const task = await createTask(req.body || {});
     observeTaskCreated();
     recordActivity({
@@ -514,6 +581,15 @@ app.post('/api/tasks', async (req, res) => {
 });
 
 app.patch('/api/tasks/:id', async (req, res) => {
+    const email = requireRequesterEmail(req, res);
+    if (!email) return;
+    const store = await readStoreAsync();
+    const existing = store.tasks.find((item) => item.id === req.params.id);
+    const project = existing ? store.projects.find((item) => item.id === existing.projectId) : undefined;
+    if (!existing || !project || !projectOwnedBy(project, email)) {
+        res.status(404).json({ error: 'Task not found' });
+        return;
+    }
     const task = await updateTask(req.params.id, req.body || {});
     if (!task) {
         res.status(404).json({ error: 'Task not found' });
@@ -529,6 +605,15 @@ app.patch('/api/tasks/:id', async (req, res) => {
 });
 
 app.delete('/api/tasks/:id', async (req, res) => {
+    const email = requireRequesterEmail(req, res);
+    if (!email) return;
+    const store = await readStoreAsync();
+    const existing = store.tasks.find((item) => item.id === req.params.id);
+    const project = existing ? store.projects.find((item) => item.id === existing.projectId) : undefined;
+    if (!existing || !project || !projectOwnedBy(project, email)) {
+        res.status(404).json({ error: 'Task not found' });
+        return;
+    }
     const deleted = await deleteTask(req.params.id);
     if (!deleted) {
         res.status(404).json({ error: 'Task not found' });
@@ -544,12 +629,23 @@ app.delete('/api/tasks/:id', async (req, res) => {
 });
 
 app.get('/api/deployments', async (req, res) => {
+    const email = requireRequesterEmail(req, res);
+    if (!email) return;
     const projectId = String(req.query.projectId || '');
-    const deployments = (await readStoreAsync()).deployments.filter((deployment) => !projectId || deployment.projectId === projectId);
+    const store = await readStoreAsync();
+    const projectIds = new Set(ownedProjects(store.projects, email).map((project) => project.id));
+    const deployments = store.deployments.filter((deployment) => projectIds.has(deployment.projectId) && (!projectId || deployment.projectId === projectId));
     res.json({ deployments });
 });
 
 app.post('/api/deployments', async (req, res) => {
+    const email = requireRequesterEmail(req, res);
+    if (!email) return;
+    const project = (await listProjectsAsync()).find((item) => item.id === String(req.body?.projectId || ''));
+    if (!project || !projectOwnedBy(project, email)) {
+        res.status(404).json({ error: 'Project not found' });
+        return;
+    }
     const deployment = await createDeployment(req.body || {});
     observeDeploymentCreated();
     recordActivity({
@@ -621,12 +717,23 @@ app.get('/api/slos', async (_req, res) => {
 });
 
 app.get('/api/incidents', async (req, res) => {
+    const email = requireRequesterEmail(req, res);
+    if (!email) return;
     const projectId = String(req.query.projectId || '');
-    const incidents = (await readStoreAsync()).incidents.filter((incident) => !projectId || incident.projectId === projectId);
+    const store = await readStoreAsync();
+    const projectIds = new Set(ownedProjects(store.projects, email).map((project) => project.id));
+    const incidents = store.incidents.filter((incident) => projectIds.has(incident.projectId) && (!projectId || incident.projectId === projectId));
     res.json({ incidents });
 });
 
 app.post('/api/incidents', async (req, res) => {
+    const email = requireRequesterEmail(req, res);
+    if (!email) return;
+    const project = (await listProjectsAsync()).find((item) => item.id === String(req.body?.projectId || ''));
+    if (!project || !projectOwnedBy(project, email)) {
+        res.status(404).json({ error: 'Project not found' });
+        return;
+    }
     const incident = await createIncident(req.body || {});
     observeIncidentCreated();
     recordActivity({
@@ -639,6 +746,15 @@ app.post('/api/incidents', async (req, res) => {
 });
 
 app.patch('/api/incidents/:id', async (req, res) => {
+    const email = requireRequesterEmail(req, res);
+    if (!email) return;
+    const store = await readStoreAsync();
+    const existing = store.incidents.find((item) => item.id === req.params.id);
+    const project = existing ? store.projects.find((item) => item.id === existing.projectId) : undefined;
+    if (!existing || !project || !projectOwnedBy(project, email)) {
+        res.status(404).json({ error: 'Incident not found' });
+        return;
+    }
     const incident = await updateIncident(req.params.id, req.body || {});
     if (!incident) {
         res.status(404).json({ error: 'Incident not found' });

@@ -17,6 +17,7 @@ export type Project = {
   owner: string;
   ownerEmail: string;
   serviceName: string;
+  deploymentPlatform: 'GitHub Pages' | 'Vercel' | 'Railway' | 'Render' | 'Other';
   appUrl: string;
   deploymentWebhookToken: string;
   status: 'Active' | 'Paused' | 'Completed';
@@ -243,6 +244,7 @@ db.exec(`
     owner TEXT NOT NULL,
     owner_email TEXT NOT NULL DEFAULT '',
     service_name TEXT NOT NULL DEFAULT '',
+    deployment_platform TEXT NOT NULL DEFAULT 'Other',
     app_url TEXT NOT NULL DEFAULT '',
     deployment_webhook_token TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL,
@@ -399,6 +401,12 @@ try {
 }
 
 try {
+  run(`ALTER TABLE projects ADD COLUMN deployment_platform TEXT NOT NULL DEFAULT 'Other'`);
+} catch {
+  // Column already exists in upgraded databases.
+}
+
+try {
   run(`ALTER TABLE projects ADD COLUMN deployment_webhook_token TEXT NOT NULL DEFAULT ''`);
 } catch {
   // Column already exists in upgraded databases.
@@ -458,6 +466,7 @@ function ensureDefaultProject() {
     'Platform Team',
     '',
     'api-gateway',
+    'Other',
     'http://localhost:3000/health',
     uuid(),
     'Active',
@@ -524,6 +533,7 @@ const projectFromRow = (row: any): Project => ({
   owner: row.owner,
   ownerEmail: row.owner_email || '',
   serviceName: row.service_name || '',
+  deploymentPlatform: row.deployment_platform || 'Other',
   appUrl: row.app_url || '',
   deploymentWebhookToken: row.deployment_webhook_token || '',
   status: row.status,
@@ -680,6 +690,7 @@ export const createProject = (input: Partial<Project>) => {
     owner: String(input.owner || 'Platform Team'),
     ownerEmail: String(input.ownerEmail || ''),
     serviceName: String(input.serviceName || ''),
+    deploymentPlatform: String(input.deploymentPlatform || 'Other') as Project['deploymentPlatform'],
     appUrl: normalizeAppUrl(input.appUrl),
     deploymentWebhookToken: String(input.deploymentWebhookToken || uuid()),
     status: input.status || 'Active',
@@ -688,14 +699,15 @@ export const createProject = (input: Partial<Project>) => {
   };
 
   run(
-    `INSERT INTO projects (id, name, description, owner, owner_email, service_name, app_url, deployment_webhook_token, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO projects (id, name, description, owner, owner_email, service_name, deployment_platform, app_url, deployment_webhook_token, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     project.id,
     project.name,
     project.description,
     project.owner,
     project.ownerEmail,
     project.serviceName,
+    project.deploymentPlatform,
     project.appUrl,
     project.deploymentWebhookToken,
     project.status,
@@ -719,12 +731,13 @@ export const updateProject = (id: string, patch: Partial<Project>) => {
   updated.appUrl = normalizeAppUrl(updated.appUrl);
 
   run(
-    `UPDATE projects SET name = ?, description = ?, owner = ?, owner_email = ?, service_name = ?, app_url = ?, deployment_webhook_token = ?, status = ?, updated_at = ? WHERE id = ?`,
+    `UPDATE projects SET name = ?, description = ?, owner = ?, owner_email = ?, service_name = ?, deployment_platform = ?, app_url = ?, deployment_webhook_token = ?, status = ?, updated_at = ? WHERE id = ?`,
     updated.name,
     updated.description,
     updated.owner,
     updated.ownerEmail,
     updated.serviceName,
+    updated.deploymentPlatform,
     updated.appUrl,
     updated.deploymentWebhookToken || uuid(),
     updated.status,

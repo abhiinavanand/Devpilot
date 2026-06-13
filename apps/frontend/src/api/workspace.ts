@@ -10,6 +10,7 @@ export type Project = {
   owner: string;
   ownerEmail?: string;
   serviceName: string;
+  deploymentPlatform: 'GitHub Pages' | 'Vercel' | 'Railway' | 'Render' | 'Other';
   appUrl: string;
   deploymentWebhookToken: string;
   status: 'Active' | 'Paused' | 'Completed';

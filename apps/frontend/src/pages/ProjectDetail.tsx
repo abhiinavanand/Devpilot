@@ -16,9 +16,29 @@ const statuses: Array<{ id: TaskStatus; title: string }> = [
 ];
 const grafanaUrl = import.meta.env.OPEN_GRAFANA_URL || import.meta.env.VITE_OPEN_GRAFANA_URL || 'http://localhost:3001';
 const deploymentProviders: Deployment['provider'][] = ['Manual', 'Vercel', 'GitHub Actions', 'Railway', 'Render', 'Other'];
+const deploymentPlatforms: Project['deploymentPlatform'][] = ['GitHub Pages', 'Vercel', 'Railway', 'Render', 'Other'];
 const normalizeUrlInput = (value: string) => {
   const trimmed = value.trim();
   return trimmed && !/^https?:\/\//i.test(trimmed) ? `https://${trimmed}` : trimmed;
+};
+const detectDeploymentPlatform = (value: string): Project['deploymentPlatform'] => {
+  try {
+    const hostname = new URL(normalizeUrlInput(value)).hostname.toLowerCase();
+    if (hostname.endsWith('github.io')) return 'GitHub Pages';
+    if (hostname.endsWith('vercel.app')) return 'Vercel';
+    if (hostname.includes('railway.app') || hostname.includes('up.railway.app')) return 'Railway';
+    if (hostname.endsWith('onrender.com')) return 'Render';
+  } catch {
+    return 'Other';
+  }
+  return 'Other';
+};
+const providerInstructions: Record<Project['deploymentPlatform'], string> = {
+  'GitHub Pages': 'GitHub setup: Repository Settings, Webhooks, Add webhook, paste this URL, choose application/json, then enable push and page_build events.',
+  Vercel: 'Vercel setup: Project Settings, Webhooks, Add webhook, paste this URL, then select deployment events.',
+  Railway: 'Railway setup: Project Settings, Webhooks, Add webhook, paste this URL, then enable deployment events.',
+  Render: 'Render setup: Service Settings, Notifications or outgoing webhook, paste this URL, then enable deploy succeeded and deploy failed events.',
+  Other: 'If your platform supports outgoing webhooks, paste this URL and send deployment status, commit, branch, and environment details to DevPilot.',
 };
 
 type DeploymentDraft = {
@@ -46,6 +66,7 @@ export const ProjectDetail = () => {
   const [loadError, setLoadError] = useState('');
   const [copiedWebhook, setCopiedWebhook] = useState(false);
   const [appUrlDraft, setAppUrlDraft] = useState('');
+  const [deploymentPlatformDraft, setDeploymentPlatformDraft] = useState<Project['deploymentPlatform']>('Other');
   const [taskDraft, setTaskDraft] = useState({ title: '', description: '', assignee: '', priority: 'Medium' as Priority, status: 'TODO' as TaskStatus });
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [incidentDraft, setIncidentDraft] = useState({ title: '', description: '', severity: 'Medium' as Priority, service: 'api-gateway' });
@@ -99,6 +120,7 @@ export const ProjectDetail = () => {
 
   useEffect(() => {
     setAppUrlDraft(project?.appUrl || '');
+    setDeploymentPlatformDraft(project?.deploymentPlatform || detectDeploymentPlatform(project?.appUrl || ''));
   }, [project?.id]);
 
   const summary = useMemo(() => ({
@@ -120,9 +142,14 @@ export const ProjectDetail = () => {
   const saveAppUrl = async (event: FormEvent) => {
     event.preventDefault();
     if (!project || !appUrlDraft.trim()) return;
-    const { project: updated } = await workspaceApi.updateProject(project.id, { appUrl: normalizeUrlInput(appUrlDraft) });
+    const normalizedAppUrl = normalizeUrlInput(appUrlDraft);
+    const { project: updated } = await workspaceApi.updateProject(project.id, {
+      appUrl: normalizedAppUrl,
+      deploymentPlatform: deploymentPlatformDraft === 'Other' ? detectDeploymentPlatform(normalizedAppUrl) : deploymentPlatformDraft,
+    });
     setProject(updated);
     setAppUrlDraft(updated.appUrl || '');
+    setDeploymentPlatformDraft(updated.deploymentPlatform || 'Other');
   };
 
   const saveTask = async (event: FormEvent) => {
@@ -217,6 +244,8 @@ export const ProjectDetail = () => {
         project={project}
         appUrlDraft={appUrlDraft}
         setAppUrlDraft={setAppUrlDraft}
+        deploymentPlatformDraft={deploymentPlatformDraft}
+        setDeploymentPlatformDraft={setDeploymentPlatformDraft}
         webhookUrl={deploymentWebhookUrl}
         copied={copiedWebhook}
         onCopy={copyDeploymentWebhook}
@@ -266,7 +295,7 @@ export const ProjectDetail = () => {
 
       {activeTab === 'Deployments' ? (
         <div className="space-y-6">
-          <DeploymentWebhookSetup webhookUrl={deploymentWebhookUrl} copied={copiedWebhook} onCopy={copyDeploymentWebhook} />
+          <DeploymentWebhookSetup webhookUrl={deploymentWebhookUrl} copied={copiedWebhook} onCopy={copyDeploymentWebhook} platform={project.deploymentPlatform} />
           <DeploymentForm draft={deploymentDraft} setDraft={setDeploymentDraft} onSubmit={createDeployment} />
           <DeploymentTable deployments={deployments} />
         </div>
@@ -333,7 +362,7 @@ const DeploymentTable = ({ deployments }: { deployments: Deployment[] }) => (
   </div>
 );
 
-const ProjectSetupPanel = ({ project, appUrlDraft, setAppUrlDraft, webhookUrl, copied, onCopy, onSaveAppUrl }: { project: Project; appUrlDraft: string; setAppUrlDraft: (value: string) => void; webhookUrl: string; copied: boolean; onCopy: () => void; onSaveAppUrl: (event: FormEvent) => void }) => {
+const ProjectSetupPanel = ({ project, appUrlDraft, setAppUrlDraft, deploymentPlatformDraft, setDeploymentPlatformDraft, webhookUrl, copied, onCopy, onSaveAppUrl }: { project: Project; appUrlDraft: string; setAppUrlDraft: (value: string) => void; deploymentPlatformDraft: Project['deploymentPlatform']; setDeploymentPlatformDraft: (value: Project['deploymentPlatform']) => void; webhookUrl: string; copied: boolean; onCopy: () => void; onSaveAppUrl: (event: FormEvent) => void }) => {
   const appUrlReady = Boolean(project.appUrl);
 
   return (
@@ -341,7 +370,7 @@ const ProjectSetupPanel = ({ project, appUrlDraft, setAppUrlDraft, webhookUrl, c
       <div className="topbar">
         <div>
           <h3>Project Connection</h3>
-          <p className="subtle">Copy the deployment webhook into Vercel, GitHub Actions, Railway, or Render, then add the deployed app URL for monitoring.</p>
+          <p className="subtle">Add the public App URL, let DevPilot detect where it is deployed, then use the generated webhook with that platform.</p>
         </div>
         <span className="badge">{appUrlReady ? 'Monitoring connected' : 'App URL needed'}</span>
       </div>
@@ -351,30 +380,37 @@ const ProjectSetupPanel = ({ project, appUrlDraft, setAppUrlDraft, webhookUrl, c
           <Copy size={16} /> {copied ? 'Copied' : 'Copy webhook'}
         </button>
       </div>
-      <form className="grid gap-3 md:grid-cols-[1fr_auto]" onSubmit={onSaveAppUrl}>
+      <form className="grid gap-3 md:grid-cols-[1fr_220px_auto_auto]" onSubmit={onSaveAppUrl}>
         <input className="editor min-h-0" placeholder="https://your-deployed-app.com" value={appUrlDraft} onChange={(event) => setAppUrlDraft(event.target.value)} />
+        <select className="editor min-h-0" value={deploymentPlatformDraft} onChange={(event) => setDeploymentPlatformDraft(event.target.value as Project['deploymentPlatform'])}>
+          {deploymentPlatforms.map((platform) => <option key={platform}>{platform}</option>)}
+        </select>
+        <button className="toggle inline-flex items-center justify-center" type="button" onClick={() => setDeploymentPlatformDraft(detectDeploymentPlatform(appUrlDraft))} disabled={!appUrlDraft.trim()}>
+          Detect Platform
+        </button>
         <button className="toggle inline-flex items-center justify-center" type="submit" disabled={!appUrlDraft.trim()}>
-          Save App URL
+          Save Connection
         </button>
       </form>
+      <p className="subtle">{providerInstructions[deploymentPlatformDraft]}</p>
       <p className="subtle">After saving the App URL, DevPilot checks it every 30 seconds and Prometheus sends uptime, response time, HTTP status, and health state to Grafana.</p>
     </div>
   );
 };
 
-const DeploymentWebhookSetup = ({ webhookUrl, copied, onCopy }: { webhookUrl: string; copied: boolean; onCopy: () => void }) => (
+const DeploymentWebhookSetup = ({ webhookUrl, copied, onCopy, platform }: { webhookUrl: string; copied: boolean; onCopy: () => void; platform: Project['deploymentPlatform'] }) => (
   <div className="card">
     <div className="topbar">
       <div>
         <h3>Auto Deployment Tracking</h3>
-        <p className="subtle">Use this project webhook in Vercel, GitHub Actions, Railway, or Render to record deployments automatically.</p>
+        <p className="subtle">Use this project webhook in {platform} to record deployments automatically.</p>
       </div>
       <button className="toggle inline-flex items-center gap-2" type="button" onClick={onCopy} disabled={!webhookUrl}>
         <Copy size={16} /> {copied ? 'Copied' : 'Copy'}
       </button>
     </div>
     <input className="editor min-h-0 mt-3" readOnly value={webhookUrl || 'Create or reload the project to generate a webhook URL.'} />
-    <p className="subtle mt-3">Vercel setup: Project Settings, Webhooks, Add webhook, paste this URL, then select deployment events.</p>
+    <p className="subtle mt-3">{providerInstructions[platform]}</p>
   </div>
 );
 

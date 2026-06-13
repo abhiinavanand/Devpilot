@@ -17,11 +17,12 @@ const normalizeUrlInput = (value: string) => {
   return trimmed && !/^https?:\/\//i.test(trimmed) ? `https://${trimmed}` : trimmed;
 };
 
-const emptyProject: Pick<Project, 'name' | 'description' | 'owner' | 'serviceName' | 'appUrl' | 'status'> = {
+const emptyProject: Pick<Project, 'name' | 'description' | 'owner' | 'serviceName' | 'deploymentPlatform' | 'appUrl' | 'status'> = {
   name: '',
   description: '',
   owner: '',
   serviceName: '',
+  deploymentPlatform: 'Other',
   appUrl: '',
   status: 'Active',
 };
@@ -91,7 +92,7 @@ export const Projects = () => {
 
   const startEdit = (project: Project) => {
     setEditing(project);
-    setDraft({ name: project.name, description: project.description, owner: project.owner, serviceName: project.serviceName, appUrl: project.appUrl, status: project.status });
+    setDraft({ name: project.name, description: project.description, owner: project.owner, serviceName: project.serviceName, deploymentPlatform: project.deploymentPlatform, appUrl: project.appUrl, status: project.status });
   };
 
   const deleteProject = async (project: Project) => {

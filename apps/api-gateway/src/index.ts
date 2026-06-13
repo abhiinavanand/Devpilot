@@ -189,6 +189,30 @@ const deploymentFromVercelPayload = (projectId: string, serviceName: string, bod
     };
 };
 
+const deploymentFromGitHubPayload = (projectId: string, serviceName: string, body: any): Partial<Deployment> => {
+    const deployment = body.deployment || {};
+    const deploymentStatus = body.deployment_status || {};
+    const repository = body.repository || {};
+    const commitSha = deployment.sha || body.workflow_run?.head_sha || body.check_run?.head_sha || '';
+    const deploymentUrl = deploymentStatus.environment_url || deploymentStatus.target_url || deploymentStatus.log_url || repository.html_url || '';
+
+    return {
+        projectId,
+        provider: 'GitHub Actions',
+        service: String(serviceName || repository.name || 'github-actions'),
+        environment: normalizeDeploymentEnvironment(deployment.environment || deploymentStatus.environment || 'production'),
+        status: normalizeDeploymentStatus(deploymentStatus.state || body.workflow_run?.conclusion || body.action),
+        version: String(commitSha ? String(commitSha).slice(0, 7) : deployment.id || body.workflow_run?.id || `github-${Date.now()}`),
+        deploymentUrl: String(deploymentUrl),
+        commitSha: String(commitSha),
+        branch: String(deployment.ref || body.workflow_run?.head_branch || ''),
+        triggeredBy: String(body.sender?.login || body.workflow_run?.actor?.login || 'github'),
+        externalId: String(deploymentStatus.id || deployment.id || body.workflow_run?.id || ''),
+        startedAt: normalizeDeploymentTimestamp(deploymentStatus.created_at || deployment.created_at || body.workflow_run?.created_at),
+        durationMinutes: 0,
+    };
+};
+
 const recordIncidentIfMissing = (input: {
     projectId: string;
     title: string;
@@ -462,14 +486,22 @@ app.post('/api/projects/:projectId/deployments/webhook', (req, res) => {
 });
 
 app.post('/webhooks/deployments/:token', (req, res) => {
+    if (String(req.header('x-github-event') || '').toLowerCase() === 'ping') {
+        res.json({ ok: true, message: 'DevPilot deployment webhook is reachable.' });
+        return;
+    }
+
     const project = findProjectByDeploymentWebhookToken(req.params.token);
     if (!project) {
         res.status(404).json({ error: 'Deployment webhook not found' });
         return;
     }
 
+    const githubEvent = String(req.header('x-github-event') || '').toLowerCase();
     const provider = normalizeDeploymentProvider(req.body?.provider || req.body?.source || req.body?.type?.split('.')?.[0]);
-    const deploymentInput = provider === 'Vercel' || String(req.body?.type || '').toLowerCase().startsWith('deployment.')
+    const deploymentInput = githubEvent === 'deployment_status' || req.body?.deployment_status
+        ? deploymentFromGitHubPayload(project.id, project.serviceName, req.body || {})
+        : provider === 'Vercel' || String(req.body?.type || '').toLowerCase().startsWith('deployment.')
         ? deploymentFromVercelPayload(project.id, project.serviceName, req.body || {})
         : {
             ...deploymentFromWebhookPayload(project.id, req.body || {}),

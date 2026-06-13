@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { Edit3, ExternalLink, Plus, Trash2 } from 'lucide-react';
 import { workspaceApi, type Project } from '../api/workspace';
 
+const PROJECT_CACHE_KEY = 'devpilot.projects.cache';
+
 const emptyProject: Pick<Project, 'name' | 'description' | 'owner' | 'serviceName' | 'appUrl' | 'status'> = {
   name: '',
   description: '',
@@ -13,19 +15,29 @@ const emptyProject: Pick<Project, 'name' | 'description' | 'owner' | 'serviceNam
 };
 
 export const Projects = () => {
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [projects, setProjects] = useState<Project[]>(() => {
+    try {
+      const cached = localStorage.getItem(PROJECT_CACHE_KEY);
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
   const [draft, setDraft] = useState(emptyProject);
   const [editing, setEditing] = useState<Project | null>(null);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(!projects.length);
 
   const loadProjects = () =>
     workspaceApi
       .projects()
       .then((data) => {
         setProjects(data.projects);
+        localStorage.setItem(PROJECT_CACHE_KEY, JSON.stringify(data.projects));
         setError('');
       })
-      .catch(() => setError('Unable to load projects.'));
+      .catch(() => setError('Unable to load projects.'))
+      .finally(() => setLoading(false));
 
   useEffect(() => {
     loadProjects();
@@ -40,11 +52,19 @@ export const Projects = () => {
 
     if (editing) {
       const { project } = await workspaceApi.updateProject(editing.id, draft);
-      setProjects((current) => current.map((item) => (item.id === project.id ? project : item)));
+      setProjects((current) => {
+        const next = current.map((item) => (item.id === project.id ? project : item));
+        localStorage.setItem(PROJECT_CACHE_KEY, JSON.stringify(next));
+        return next;
+      });
       setEditing(null);
     } else {
       const { project } = await workspaceApi.createProject(draft);
-      setProjects((current) => [project, ...current]);
+      setProjects((current) => {
+        const next = [project, ...current];
+        localStorage.setItem(PROJECT_CACHE_KEY, JSON.stringify(next));
+        return next;
+      });
     }
     setError('');
     setDraft(emptyProject);
@@ -57,7 +77,11 @@ export const Projects = () => {
 
   const deleteProject = async (project: Project) => {
     await workspaceApi.deleteProject(project.id);
-    setProjects((current) => current.filter((item) => item.id !== project.id));
+    setProjects((current) => {
+      const next = current.filter((item) => item.id !== project.id);
+      localStorage.setItem(PROJECT_CACHE_KEY, JSON.stringify(next));
+      return next;
+    });
   };
 
   return (
@@ -66,6 +90,7 @@ export const Projects = () => {
         <h1>Projects</h1>
         <p className="subtle">Create a project to generate its deployment webhook, then add the deployed app URL inside the project.</p>
       </div>
+      {loading ? <p className="subtle">Loading projects...</p> : null}
       {error ? <p className="subtle">{error}</p> : null}
 
       <form className="card grid gap-3 md:grid-cols-[1fr_1fr_1fr_160px_auto]" onSubmit={submit}>
@@ -109,6 +134,11 @@ export const Projects = () => {
                 </td>
               </tr>
             ))}
+            {!loading && !projects.length ? (
+              <tr>
+                <td colSpan={6}>No projects yet. Create one to generate its deployment webhook.</td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>

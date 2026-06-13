@@ -1,12 +1,96 @@
 name: CD
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Deployment environment
+        required: true
+        default: production
+        type: choice
+        options:
+          - staging
+          - production
+      version:
+        description: Version label to send to DevPilot
+        required: false
+        default: ""
+      devpilot_webhook_url:
+        description: DevPilot project deployment webhook URL
+        required: false
+        default: ""
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      DEVPILOT_WEBHOOK_URL: ${{ inputs.devpilot_webhook_url || secrets.DEVPILOT_DEPLOYMENT_WEBHOOK_URL }}
+      DEPLOYMENT_VERSION: ${{ inputs.version || github.sha }}
     steps:
       - uses: actions/checkout@v4
-      - name: Deploy to staging
-        run: echo "Deploy placeholder"
+
+      - name: Notify DevPilot deployment started
+        if: env.DEVPILOT_WEBHOOK_URL != ''
+        run: |
+          curl -fsS -X POST "$DEVPILOT_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d @- <<JSON
+          {
+            "provider": "GitHub Actions",
+            "service": "${{ github.event.repository.name }}",
+            "version": "$DEPLOYMENT_VERSION",
+            "environment": "${{ inputs.environment }}",
+            "status": "running",
+            "deploymentUrl": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+            "commitSha": "${{ github.sha }}",
+            "branch": "${{ github.ref_name }}",
+            "triggeredBy": "${{ github.actor }}",
+            "externalId": "${{ github.run_id }}"
+          }
+          JSON
+
+      - name: Deploy application
+        run: |
+          echo "Deployment test completed for ${{ github.event.repository.name }}"
+          echo "Replace this step with Render, Railway, Vercel, or Docker deployment commands later."
+
+      - name: Notify DevPilot deployment succeeded
+        if: success() && env.DEVPILOT_WEBHOOK_URL != ''
+        run: |
+          curl -fsS -X POST "$DEVPILOT_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d @- <<JSON
+          {
+            "provider": "GitHub Actions",
+            "service": "${{ github.event.repository.name }}",
+            "version": "$DEPLOYMENT_VERSION",
+            "environment": "${{ inputs.environment }}",
+            "status": "succeeded",
+            "deploymentUrl": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+            "commitSha": "${{ github.sha }}",
+            "branch": "${{ github.ref_name }}",
+            "triggeredBy": "${{ github.actor }}",
+            "externalId": "${{ github.run_id }}"
+          }
+          JSON
+
+      - name: Notify DevPilot deployment failed
+        if: failure() && env.DEVPILOT_WEBHOOK_URL != ''
+        run: |
+          curl -fsS -X POST "$DEVPILOT_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d @- <<JSON
+          {
+            "provider": "GitHub Actions",
+            "service": "${{ github.event.repository.name }}",
+            "version": "$DEPLOYMENT_VERSION",
+            "environment": "${{ inputs.environment }}",
+            "status": "failed",
+            "deploymentUrl": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+            "commitSha": "${{ github.sha }}",
+            "branch": "${{ github.ref_name }}",
+            "triggeredBy": "${{ github.actor }}",
+            "externalId": "${{ github.run_id }}"
+          }
+          JSON

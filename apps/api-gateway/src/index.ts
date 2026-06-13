@@ -499,7 +499,7 @@ app.post('/webhooks/deployments/:token', (req, res) => {
 
     const githubEvent = String(req.header('x-github-event') || '').toLowerCase();
     const provider = normalizeDeploymentProvider(req.body?.provider || req.body?.source || req.body?.type?.split('.')?.[0]);
-    const deploymentInput = githubEvent === 'deployment_status' || req.body?.deployment_status
+    const deploymentInput = ['deployment_status', 'workflow_run', 'check_run'].includes(githubEvent) || req.body?.deployment_status || req.body?.workflow_run || req.body?.check_run
         ? deploymentFromGitHubPayload(project.id, project.serviceName, req.body || {})
         : provider === 'Vercel' || String(req.body?.type || '').toLowerCase().startsWith('deployment.')
         ? deploymentFromVercelPayload(project.id, project.serviceName, req.body || {})

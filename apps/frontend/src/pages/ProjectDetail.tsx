@@ -16,6 +16,10 @@ const statuses: Array<{ id: TaskStatus; title: string }> = [
 ];
 const grafanaUrl = import.meta.env.OPEN_GRAFANA_URL || import.meta.env.VITE_OPEN_GRAFANA_URL || 'http://localhost:3001';
 const deploymentProviders: Deployment['provider'][] = ['Manual', 'Vercel', 'GitHub Actions', 'Railway', 'Render', 'Other'];
+const normalizeUrlInput = (value: string) => {
+  const trimmed = value.trim();
+  return trimmed && !/^https?:\/\//i.test(trimmed) ? `https://${trimmed}` : trimmed;
+};
 
 type DeploymentDraft = {
   provider: Deployment['provider'];
@@ -41,6 +45,7 @@ export const ProjectDetail = () => {
   const [healthChecks, setHealthChecks] = useState<ProjectHealthCheck[]>([]);
   const [services, setServices] = useState<ServiceHealth[]>([]);
   const [monitoringSummary, setMonitoringSummary] = useState<MonitoringSummary | null>(null);
+  const [loadError, setLoadError] = useState('');
   const [copiedWebhook, setCopiedWebhook] = useState(false);
   const [appUrlDraft, setAppUrlDraft] = useState('');
   const [taskDraft, setTaskDraft] = useState({ title: '', description: '', assignee: '', priority: 'Medium' as Priority, status: 'TODO' as TaskStatus });
@@ -61,13 +66,23 @@ export const ProjectDetail = () => {
   } satisfies DeploymentDraft);
 
   const load = () => {
-    workspaceApi.projectSummary(id).then((data) => {
-      setProject(data.project);
-      setTasks(data.tasks);
-      setDeployments(data.deployments);
-      setIncidents(data.incidents);
-      setHealthChecks(data.healthChecks);
-    });
+    workspaceApi.projectSummary(id)
+      .then((data) => {
+        setProject(data.project);
+        setTasks(data.tasks);
+        setDeployments(data.deployments);
+        setIncidents(data.incidents);
+        setHealthChecks(data.healthChecks);
+        setLoadError('');
+      })
+      .catch(() => {
+        setProject(null);
+        setTasks([]);
+        setDeployments([]);
+        setIncidents([]);
+        setHealthChecks([]);
+        setLoadError('Project not found in the connected DevPilot API. Open Projects and select a project from the current backend.');
+      });
     workspaceApi.serviceHealth().then((data) => setServices(data.services)).catch(() => setServices([]));
     workspaceApi.monitoringSummary().then(setMonitoringSummary).catch(() => setMonitoringSummary(null));
   };
@@ -109,7 +124,7 @@ export const ProjectDetail = () => {
   const saveAppUrl = async (event: FormEvent) => {
     event.preventDefault();
     if (!project || !appUrlDraft.trim()) return;
-    const { project: updated } = await workspaceApi.updateProject(project.id, { appUrl: appUrlDraft.trim() });
+    const { project: updated } = await workspaceApi.updateProject(project.id, { appUrl: normalizeUrlInput(appUrlDraft) });
     setProject(updated);
     setAppUrlDraft(updated.appUrl || '');
   };
@@ -192,7 +207,7 @@ export const ProjectDetail = () => {
   }, [project]);
 
   if (!project) {
-    return <div className="card"><h2>Loading project</h2></div>;
+    return <div className="card"><h2>{loadError ? 'Project unavailable' : 'Loading project'}</h2>{loadError ? <p className="subtle">{loadError}</p> : null}</div>;
   }
 
   return (

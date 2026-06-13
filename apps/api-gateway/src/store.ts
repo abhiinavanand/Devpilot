@@ -189,6 +189,11 @@ const dbPath = path.join(dataDir, 'devpilot.sqlite');
 const now = () => new Date().toISOString();
 const json = (value: unknown) => JSON.stringify(value);
 const DEFAULT_PROJECT_NAME = 'DevPilot Platform';
+const normalizeAppUrl = (value: unknown) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  return /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+};
 
 const normalizeStatus = (status: unknown): TaskStatus => {
   const value = String(status || '').trim();
@@ -652,7 +657,7 @@ export const createProject = (input: Partial<Project>) => {
     description: String(input.description || ''),
     owner: String(input.owner || 'Platform Team'),
     serviceName: String(input.serviceName || ''),
-    appUrl: String(input.appUrl || ''),
+    appUrl: normalizeAppUrl(input.appUrl),
     deploymentWebhookToken: String(input.deploymentWebhookToken || uuid()),
     status: input.status || 'Active',
     createdAt: timestamp,
@@ -686,6 +691,7 @@ export const updateProject = (id: string, patch: Partial<Project>) => {
     id,
     updatedAt: now(),
   };
+  updated.appUrl = normalizeAppUrl(updated.appUrl);
 
   run(
     `UPDATE projects SET name = ?, description = ?, owner = ?, service_name = ?, app_url = ?, deployment_webhook_token = ?, status = ?, updated_at = ? WHERE id = ?`,

@@ -4,6 +4,10 @@ import { Edit3, ExternalLink, Plus, Trash2 } from 'lucide-react';
 import { workspaceApi, type Project } from '../api/workspace';
 
 const PROJECT_CACHE_KEY = 'devpilot.projects.cache';
+const normalizeUrlInput = (value: string) => {
+  const trimmed = value.trim();
+  return trimmed && !/^https?:\/\//i.test(trimmed) ? `https://${trimmed}` : trimmed;
+};
 
 const emptyProject: Pick<Project, 'name' | 'description' | 'owner' | 'serviceName' | 'appUrl' | 'status'> = {
   name: '',
@@ -51,7 +55,7 @@ export const Projects = () => {
     }
 
     if (editing) {
-      const { project } = await workspaceApi.updateProject(editing.id, draft);
+      const { project } = await workspaceApi.updateProject(editing.id, { ...draft, appUrl: normalizeUrlInput(draft.appUrl) });
       setProjects((current) => {
         const next = current.map((item) => (item.id === project.id ? project : item));
         localStorage.setItem(PROJECT_CACHE_KEY, JSON.stringify(next));
@@ -59,7 +63,7 @@ export const Projects = () => {
       });
       setEditing(null);
     } else {
-      const { project } = await workspaceApi.createProject(draft);
+      const { project } = await workspaceApi.createProject({ ...draft, appUrl: normalizeUrlInput(draft.appUrl) });
       setProjects((current) => {
         const next = [project, ...current];
         localStorage.setItem(PROJECT_CACHE_KEY, JSON.stringify(next));

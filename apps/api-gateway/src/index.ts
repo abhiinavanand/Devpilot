@@ -228,6 +228,64 @@ const deploymentFromGitHubPayload = (projectId: string, serviceName: string, bod
     };
 };
 
+const deploymentFromGitHubPushPayload = (projectId: string, serviceName: string, body: any): Partial<Deployment> => {
+    const repository = body.repository || {};
+    const commitSha = String(body.after || body.head_commit?.id || '');
+    const branch = String(body.ref || '').replace(/^refs\/heads\//, '');
+
+    return {
+        projectId,
+        provider: 'GitHub Actions',
+        service: String(serviceName || repository.name || 'github-pages'),
+        environment: 'production',
+        status: 'Succeeded',
+        version: String(commitSha ? commitSha.slice(0, 7) : `github-push-${Date.now()}`),
+        deploymentUrl: String(repository.homepage || repository.html_url || ''),
+        commitSha,
+        branch,
+        triggeredBy: String(body.pusher?.name || body.sender?.login || 'github'),
+        externalId: String(body.after || body.head_commit?.id || `${repository.id || 'github'}-${Date.now()}`),
+        startedAt: normalizeDeploymentTimestamp(body.head_commit?.timestamp || body.repository?.updated_at || new Date().toISOString()),
+        durationMinutes: 0,
+    };
+};
+
+const deploymentFromGitHubPageBuildPayload = (projectId: string, serviceName: string, body: any): Partial<Deployment> => {
+    const repository = body.repository || {};
+    const build = body.build || {};
+    const error = build.error || {};
+    const commitSha = String(build.commit || '');
+
+    return {
+        projectId,
+        provider: 'GitHub Actions',
+        service: String(serviceName || repository.name || 'github-pages'),
+        environment: 'production',
+        status: error.message ? 'Failed' : 'Succeeded',
+        version: String(commitSha ? commitSha.slice(0, 7) : `page-build-${Date.now()}`),
+        deploymentUrl: String(repository.homepage || repository.html_url || ''),
+        commitSha,
+        branch: String(build.pusher || ''),
+        triggeredBy: String(build.pusher || body.sender?.login || 'github-pages'),
+        externalId: String(build.id || commitSha || `${repository.id || 'github-pages'}-${Date.now()}`),
+        startedAt: normalizeDeploymentTimestamp(build.created_at || new Date().toISOString()),
+        durationMinutes: 0,
+    };
+};
+
+const deploymentFromGitHubEvent = (projectId: string, serviceName: string, githubEvent: string, body: any): Partial<Deployment> | null => {
+    if (['deployment_status', 'workflow_run', 'check_run'].includes(githubEvent) || body?.deployment_status || body?.workflow_run || body?.check_run) {
+        return deploymentFromGitHubPayload(projectId, serviceName, body);
+    }
+    if (githubEvent === 'push') {
+        return deploymentFromGitHubPushPayload(projectId, serviceName, body);
+    }
+    if (githubEvent === 'page_build') {
+        return deploymentFromGitHubPageBuildPayload(projectId, serviceName, body);
+    }
+    return null;
+};
+
 const recordIncidentIfMissing = async (input: {
     projectId: string;
     title: string;
@@ -537,8 +595,9 @@ app.post('/webhooks/deployments/:token', async (req, res) => {
 
     const githubEvent = String(req.header('x-github-event') || '').toLowerCase();
     const provider = normalizeDeploymentProvider(req.body?.provider || req.body?.source || req.body?.type?.split('.')?.[0]);
-    const deploymentInput = ['deployment_status', 'workflow_run', 'check_run'].includes(githubEvent) || req.body?.deployment_status || req.body?.workflow_run || req.body?.check_run
-        ? deploymentFromGitHubPayload(project.id, project.serviceName, req.body || {})
+    const githubDeployment = deploymentFromGitHubEvent(project.id, project.serviceName, githubEvent, req.body || {});
+    const deploymentInput = githubDeployment
+        ? githubDeployment
         : provider === 'Vercel' || String(req.body?.type || '').toLowerCase().startsWith('deployment.')
         ? deploymentFromVercelPayload(project.id, project.serviceName, req.body || {})
         : {

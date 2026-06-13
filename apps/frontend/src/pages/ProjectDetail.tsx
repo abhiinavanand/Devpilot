@@ -125,7 +125,7 @@ export const ProjectDetail = () => {
   useEffect(() => {
     setAppUrlDraft(project?.appUrl || '');
     setDeploymentPlatformDraft(project?.deploymentPlatform || detectDeploymentPlatform(project?.appUrl || ''));
-  }, [project?.id]);
+  }, [project?.id, project?.deploymentPlatform, project?.appUrl]);
 
   const summary = useMemo(() => ({
     totalTasks: tasks.length,
@@ -134,8 +134,9 @@ export const ProjectDetail = () => {
     openIncidents: incidents.filter((incident) => incident.status !== 'Resolved').length,
     deployments: deployments.length,
   }), [tasks, incidents, deployments]);
+  const effectiveDeploymentPlatform = deploymentPlatformDraft || project?.deploymentPlatform || 'Other';
   const deploymentWebhookUrl = project?.deploymentWebhookToken
-    ? absoluteApiUrl(`/webhooks/deployments/${webhookPlatformSlug(project.deploymentPlatform || deploymentPlatformDraft)}/${project.deploymentWebhookToken}`)
+    ? absoluteApiUrl(`/webhooks/deployments/${webhookPlatformSlug(effectiveDeploymentPlatform)}/${project.deploymentWebhookToken}`)
     : '';
 
   const copyDeploymentWebhook = async () => {
@@ -301,7 +302,7 @@ export const ProjectDetail = () => {
 
       {activeTab === 'Deployments' ? (
         <div className="space-y-6">
-          <DeploymentWebhookSetup webhookUrl={deploymentWebhookUrl} copied={copiedWebhook} onCopy={copyDeploymentWebhook} platform={project.deploymentPlatform} />
+          <DeploymentWebhookSetup webhookUrl={deploymentWebhookUrl} copied={copiedWebhook} onCopy={copyDeploymentWebhook} platform={effectiveDeploymentPlatform} />
           <DeploymentForm draft={deploymentDraft} setDraft={setDeploymentDraft} onSubmit={createDeployment} />
           <DeploymentTable deployments={deployments} />
         </div>

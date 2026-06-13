@@ -57,6 +57,16 @@ export type Dashboard = {
   timeline: Array<{ title: string; owner: string; time: string }>;
   deployments: Deployment[];
   incidents: Incident[];
+  projectHealth: Array<{
+    projectId: string;
+    name: string;
+    serviceName: string;
+    appUrl: string;
+    status: ProjectHealthCheck['status'] | 'unknown';
+    statusCode: number | null;
+    responseTimeMs: number | null;
+    checkedAt: string | null;
+  }>;
 };
 
 export type Deployment = {

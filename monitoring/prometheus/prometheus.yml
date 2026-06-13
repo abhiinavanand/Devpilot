@@ -9,3 +9,10 @@ scrape_configs:
       - targets:
           - api-gateway:3000
           - host.docker.internal:3000
+
+  - job_name: devpilot-vercel
+    metrics_path: /metrics
+    scheme: https
+    static_configs:
+      - targets:
+          - devpilot-ai-blush.vercel.app

@@ -4,7 +4,7 @@ import { useParams } from 'react-router-dom';
 import { Copy, ExternalLink, Plus } from 'lucide-react';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { absoluteApiUrl } from '../api/client';
-import { workspaceApi, type Deployment, type Incident, type MonitoringSummary, type Priority, type Project, type ProjectHealthCheck, type ServiceHealth, type Task, type TaskStatus } from '../api/workspace';
+import { workspaceApi, type Deployment, type Incident, type Priority, type Project, type ProjectHealthCheck, type Task, type TaskStatus } from '../api/workspace';
 import { useRealtimeListener } from '../api/realtime';
 
 const tabs = ['Overview', 'Tasks', 'Kanban', 'Deployments', 'Incidents', 'Analytics', 'Monitoring'] as const;
@@ -43,8 +43,6 @@ export const ProjectDetail = () => {
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [healthChecks, setHealthChecks] = useState<ProjectHealthCheck[]>([]);
-  const [services, setServices] = useState<ServiceHealth[]>([]);
-  const [monitoringSummary, setMonitoringSummary] = useState<MonitoringSummary | null>(null);
   const [loadError, setLoadError] = useState('');
   const [copiedWebhook, setCopiedWebhook] = useState(false);
   const [appUrlDraft, setAppUrlDraft] = useState('');
@@ -83,8 +81,6 @@ export const ProjectDetail = () => {
         setHealthChecks([]);
         setLoadError('Project not found in the connected DevPilot API. Open Projects and select a project from the current backend.');
       });
-    workspaceApi.serviceHealth().then((data) => setServices(data.services)).catch(() => setServices([]));
-    workspaceApi.monitoringSummary().then(setMonitoringSummary).catch(() => setMonitoringSummary(null));
   };
 
   // Subscribe to real-time updates
@@ -241,7 +237,7 @@ export const ProjectDetail = () => {
             <div className="card"><h3>Deployment Summary</h3><p className="metric">{summary.deployments}</p><p className="subtle">deployment records</p></div>
             <div className="card"><h3>Incident Summary</h3><p className="metric">{summary.openIncidents}</p><p className="subtle">open incidents</p></div>
           </div>
-          <ServiceHealthGrid services={services} />
+          <ProjectHealthPanel project={project} healthChecks={healthChecks} />
         </div>
       ) : null}
 
@@ -291,7 +287,7 @@ export const ProjectDetail = () => {
 
       {activeTab === 'Analytics' ? <ProjectAnalytics tasks={tasks} deployments={deployments} incidents={incidents} summary={summary} /> : null}
 
-      {activeTab === 'Monitoring' ? <ProjectMonitoring project={project} services={services} incidents={incidents} deployments={deployments} healthChecks={healthChecks} monitoringSummary={monitoringSummary} /> : null}
+      {activeTab === 'Monitoring' ? <ProjectMonitoring project={project} incidents={incidents} deployments={deployments} healthChecks={healthChecks} /> : null}
     </div>
   );
 };
@@ -431,20 +427,37 @@ const IncidentTable = ({ incidents, onUpdate }: { incidents: Incident[]; onUpdat
   </div>
 );
 
-const ServiceHealthGrid = ({ services }: { services: ServiceHealth[] }) => (
+const formatProjectHealthStatus = (check?: ProjectHealthCheck) => {
+  if (!check) return 'No checks yet';
+  if (check.status === 'healthy') return 'Healthy';
+  if (check.status === 'warning') return 'Warning';
+  return 'Down';
+};
+
+const ProjectHealthPanel = ({ project, healthChecks }: { project: Project; healthChecks: ProjectHealthCheck[] }) => {
+  const latest = healthChecks[0];
+  return (
   <div className="card">
     <h3>Service Health</h3>
     <div className="grid">
-      {services.map((service) => (
-        <div className="health-row" key={service.service}>
-          <span className={`health-dot ${service.status === 'healthy' ? 'health-dot-ok' : 'health-dot-bad'}`} />
-          <div><strong>{service.name}</strong><p className="subtle">{service.status} · {new Date(service.timestamp).toLocaleTimeString()}</p></div>
+      {project.appUrl ? (
+        <div className="health-row">
+          <span className={`health-dot ${latest?.status === 'healthy' ? 'health-dot-ok' : latest?.status === 'down' ? 'health-dot-bad' : ''}`} />
+          <div>
+            <strong>{project.serviceName || project.name}</strong>
+            <p className="subtle">
+              {formatProjectHealthStatus(latest)}
+              {latest?.statusCode ? ` · HTTP ${latest.statusCode}` : ''}
+              {latest?.responseTimeMs ? ` · ${latest.responseTimeMs} ms` : ''}
+              {latest?.checkedAt ? ` · ${new Date(latest.checkedAt).toLocaleTimeString()}` : ''}
+            </p>
+          </div>
         </div>
-      ))}
-      {!services.length ? <p className="subtle">No health endpoint is configured for this project service.</p> : null}
+      ) : <p className="subtle">Add an App URL to start project health checks.</p>}
     </div>
   </div>
-);
+  );
+};
 
 const dateKey = (value: string) => new Date(value).toISOString().slice(0, 10);
 
@@ -523,20 +536,23 @@ const ProjectBarChart = ({ title, data, dataKey }: { title: string; data: Array<
   </div>
 );
 
-const ProjectMonitoring = ({ project, services, incidents, deployments, healthChecks, monitoringSummary }: { project: Project; services: ServiceHealth[]; incidents: Incident[]; deployments: Deployment[]; healthChecks: ProjectHealthCheck[]; monitoringSummary: MonitoringSummary | null }) => {
+const ProjectMonitoring = ({ project, incidents, deployments, healthChecks }: { project: Project; incidents: Incident[]; deployments: Deployment[]; healthChecks: ProjectHealthCheck[] }) => {
   const projectGrafanaUrl = `${grafanaUrl}/d/devpilot-project-observability/project-observability?var-project_id=${encodeURIComponent(project.id)}`;
-  const matchedService = services.find((service) => service.service === project.serviceName);
   const openIncidents = incidents.filter((incident) => incident.status !== 'Resolved');
   const recentDeployments = deployments.slice(0, 5);
   const failedDeployments = deployments.filter((deployment) => ['Failed', 'Rolled Back'].includes(deployment.status));
   const latestHealthCheck = healthChecks[0];
   const uptime = healthChecks.length ? ((healthChecks.filter((check) => check.status === 'healthy').length / healthChecks.length) * 100).toFixed(1) : null;
-  const currentStatus = latestHealthCheck?.status === 'down' || matchedService?.status === 'unhealthy'
+  const currentStatus = latestHealthCheck?.status === 'down'
     ? 'Down'
-    : latestHealthCheck?.status === 'warning' || openIncidents.length || failedDeployments.length || monitoringSummary?.status === 'Warning'
+    : latestHealthCheck?.status === 'warning' || openIncidents.length || failedDeployments.length
       ? 'Warning'
-      : latestHealthCheck ? 'Healthy' : monitoringSummary?.status || 'Healthy';
-  const statusCodes = monitoringSummary ? Object.entries(monitoringSummary.statusCodes).sort(([a], [b]) => Number(a) - Number(b)) : [];
+      : latestHealthCheck ? 'Healthy' : 'No checks yet';
+  const statusCodes = Object.entries(healthChecks.reduce<Record<string, number>>((counts, check) => {
+    const code = check.statusCode ? String(check.statusCode) : 'No response';
+    counts[code] = (counts[code] || 0) + 1;
+    return counts;
+  }, {})).sort(([a], [b]) => Number(a) - Number(b));
 
   return (
     <div className="space-y-6">
@@ -555,7 +571,7 @@ const ProjectMonitoring = ({ project, services, incidents, deployments, healthCh
         <div className="card">
           <h3>Current Status</h3>
           <p className="metric">{currentStatus}</p>
-          <p className="subtle">Derived from health checks, open incidents, failed deployments, and API requests.</p>
+          <p className="subtle">Derived from this project URL checks, open incidents, and failed deployments.</p>
         </div>
         <div className="card">
           <h3>App URL</h3>
@@ -566,8 +582,8 @@ const ProjectMonitoring = ({ project, services, incidents, deployments, healthCh
           <p className="metric">{project.serviceName || 'Not mapped'}</p>
         </div>
         <div className="card">
-          <h3>Service Status</h3>
-          <p className="metric">{matchedService?.status === 'healthy' ? 'Healthy' : 'Unhealthy'}</p>
+          <h3>URL Health</h3>
+          <p className="metric">{formatProjectHealthStatus(latestHealthCheck)}</p>
         </div>
         <div className="card">
           <h3>Last App Check</h3>
@@ -609,10 +625,10 @@ const ProjectMonitoring = ({ project, services, incidents, deployments, healthCh
             {statusCodes.map(([code, count]) => (
               <div className="timeline-item" key={code}>
                 <span className={`health-dot ${Number(code) >= 500 ? 'health-dot-bad' : Number(code) >= 400 ? '' : 'health-dot-ok'}`} />
-                <div><strong>{code}</strong><p className="subtle">{count} requests in the recent API sample</p></div>
+                <div><strong>{code}</strong><p className="subtle">{count} project health checks</p></div>
               </div>
             ))}
-            {!statusCodes.length ? <p className="subtle">No API requests recorded yet.</p> : null}
+            {!statusCodes.length ? <p className="subtle">No project health checks recorded yet.</p> : null}
           </div>
         </div>
         <div className="card">
@@ -639,7 +655,7 @@ const ProjectMonitoring = ({ project, services, incidents, deployments, healthCh
             {!recentDeployments.length ? <p className="subtle">No deployments recorded for this project.</p> : null}
           </div>
         </div>
-        <ServiceHealthGrid services={matchedService ? [matchedService] : []} />
+        <ProjectHealthPanel project={project} healthChecks={healthChecks} />
       </div>
     </div>
   );

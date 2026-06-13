@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { workspaceApi, type Dashboard, type ServiceHealth } from '../api/workspace';
+import { workspaceApi, type Dashboard } from '../api/workspace';
 import { apiClient } from '../api/client';
 import { useRealtimeListener } from '../api/realtime';
 
@@ -10,8 +10,6 @@ type ActivityLog = {
   action: string;
   timestamp: string;
 };
-
-const overviewServices = new Set(['api-gateway', 'project-service', 'analytics-service', 'notification-service']);
 
 const activityLabels: Array<[string, string]> = [
   ['project.created', 'Project Created'],
@@ -32,7 +30,6 @@ const formatActivity = (action: string) => {
 export const Overview = () => {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [activity, setActivity] = useState<ActivityLog[]>([]);
-  const [services, setServices] = useState<ServiceHealth[]>([]);
   const [error, setError] = useState('');
 
   const load = () => {
@@ -41,10 +38,6 @@ export const Overview = () => {
       .get<ActivityLog[]>('/activity')
       .then((items) => setActivity(items.filter((item) => formatActivity(item.action))))
       .catch(() => setActivity([]));
-    workspaceApi
-      .serviceHealth()
-      .then((data) => setServices(data.services.filter((service) => overviewServices.has(service.service))))
-      .catch(() => setServices([]));
   };
 
   // Subscribe to all real-time events to refresh dashboard
@@ -141,16 +134,21 @@ export const Overview = () => {
         <div className="card">
           <h3>Service Health</h3>
           <div className="grid">
-            {services.map((service) => (
-              <div className="health-row" key={service.service}>
-                <span className={`health-dot ${service.status === 'healthy' ? 'health-dot-ok' : 'health-dot-bad'}`} />
+            {dashboard.projectHealth.filter((item) => item.appUrl).map((item) => (
+              <div className="health-row" key={item.projectId}>
+                <span className={`health-dot ${item.status === 'healthy' ? 'health-dot-ok' : item.status === 'down' ? 'health-dot-bad' : ''}`} />
                 <div>
-                  <strong>{service.name}</strong>
-                  <p className="subtle">{service.status === 'healthy' ? 'Healthy' : 'Unhealthy'} · {new Date(service.timestamp).toLocaleTimeString()}</p>
+                  <strong>{item.name}</strong>
+                  <p className="subtle">
+                    {item.status === 'unknown' ? 'No checks yet' : item.status}
+                    {item.statusCode ? ` · HTTP ${item.statusCode}` : ''}
+                    {item.responseTimeMs ? ` · ${item.responseTimeMs} ms` : ''}
+                    {item.checkedAt ? ` · ${new Date(item.checkedAt).toLocaleTimeString()}` : ''}
+                  </p>
                 </div>
               </div>
             ))}
-            {!services.length ? <p className="subtle">Health checks unavailable.</p> : null}
+            {!dashboard.projectHealth.filter((item) => item.appUrl).length ? <p className="subtle">No project App URLs are configured yet.</p> : null}
           </div>
         </div>
       </div>

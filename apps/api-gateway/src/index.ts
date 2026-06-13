@@ -36,6 +36,7 @@ import {
     updateTask
 } from './store';
 import type { Deployment } from './store';
+import type { Project, ProjectHealthCheck } from './store';
 import { observeDeploymentCreated, observeIncidentCreated, observeProjectCreated, observeTaskCreated, prometheusMiddleware, renderMetrics, requestHealthSummary } from './metrics';
 
 export const app = express();
@@ -114,33 +115,43 @@ const checkProjectAppUrl = (projectId: string, appUrl: string) =>
         });
     });
 
+const recordProjectHealthForProject = async (project: Project) => {
+    const result = await checkProjectAppUrl(project.id, project.appUrl);
+    const status = classifyProjectHealth(result.statusCode, result.responseTimeMs, result.error);
+    const check = await recordProjectHealthCheck({
+        projectId: project.id,
+        appUrl: project.appUrl,
+        status,
+        statusCode: result.statusCode,
+        responseTimeMs: result.responseTimeMs,
+        error: result.error,
+    });
+
+    if (status === 'down') {
+        recordIncidentIfMissing({
+            projectId: project.id,
+            title: `Application health check failed: ${project.name}`,
+            description: result.error || `${project.appUrl} returned HTTP ${result.statusCode}.`,
+            severity: 'High',
+            service: project.serviceName,
+            actor: 'project-health-checker',
+        });
+    }
+
+    realtime.broadcast({ type: 'project.health.checked', payload: check });
+    return check;
+};
+
+const ensureRecentProjectHealthCheck = async (project: Project, checks: ProjectHealthCheck[]) => {
+    if (!project.appUrl || project.status !== 'Active') return undefined;
+    const latest = checks.find((check) => check.projectId === project.id);
+    if (latest && Date.now() - new Date(latest.checkedAt).getTime() < 25000) return latest;
+    return recordProjectHealthForProject(project);
+};
+
 const runProjectHealthChecks = async () => {
     const projects = (await listProjectsAsync()).filter((project) => project.status === 'Active' && project.appUrl);
-    await Promise.all(projects.map(async (project) => {
-        const result = await checkProjectAppUrl(project.id, project.appUrl);
-        const status = classifyProjectHealth(result.statusCode, result.responseTimeMs, result.error);
-        const check = await recordProjectHealthCheck({
-            projectId: project.id,
-            appUrl: project.appUrl,
-            status,
-            statusCode: result.statusCode,
-            responseTimeMs: result.responseTimeMs,
-            error: result.error,
-        });
-
-        if (status === 'down') {
-            recordIncidentIfMissing({
-                projectId: project.id,
-                title: `Application health check failed: ${project.name}`,
-                description: result.error || `${project.appUrl} returned HTTP ${result.statusCode}.`,
-                severity: 'High',
-                service: project.serviceName,
-                actor: 'project-health-checker',
-            });
-        }
-
-        realtime.broadcast({ type: 'project.health.checked', payload: check });
-    }));
+    await Promise.all(projects.map(recordProjectHealthForProject));
 };
 
 const deploymentFromWebhookPayload = (projectId: string, body: any): Partial<Deployment> => ({
@@ -310,6 +321,12 @@ app.get('/api/dashboard', async (_req, res) => {
     const completedTasks = store.tasks.filter((task) => task.status === 'DONE').length;
     const openTrackedIncidents = store.incidents.filter((incident) => incident.status !== 'Resolved').length;
     const deploymentsThisWeek = store.deployments.filter((deployment) => new Date(deployment.startedAt).getTime() >= oneWeekAgo).length;
+    const latestHealthByProject = new Map<string, ProjectHealthCheck>();
+    store.projectHealthChecks.forEach((check) => {
+        if (!latestHealthByProject.has(check.projectId)) {
+            latestHealthByProject.set(check.projectId, check);
+        }
+    });
 
     res.json({
         metrics: [
@@ -326,6 +343,19 @@ app.get('/api/dashboard', async (_req, res) => {
         })),
         deployments: store.deployments.slice(0, 5),
         incidents: store.incidents.filter((incident) => incident.status !== 'Resolved').slice(0, 5),
+        projectHealth: store.projects.map((project) => {
+            const latest = latestHealthByProject.get(project.id);
+            return {
+                projectId: project.id,
+                name: project.name,
+                serviceName: project.serviceName,
+                appUrl: project.appUrl,
+                status: latest?.status || 'unknown',
+                statusCode: latest?.statusCode || null,
+                responseTimeMs: latest?.responseTimeMs || null,
+                checkedAt: latest?.checkedAt || null,
+            };
+        }),
     });
 });
 
@@ -362,6 +392,9 @@ app.patch('/api/projects/:id', async (req, res) => {
         res.status(404).json({ error: 'Project not found' });
         return;
     }
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'appUrl') && project.appUrl) {
+        await recordProjectHealthForProject(project).catch((error) => console.error('Project health check failed', error));
+    }
     recordActivity({
         actor: req.header('x-user') || 'product',
         role: getRole(req),
@@ -395,7 +428,8 @@ app.get('/api/projects/:projectId/summary', async (req, res) => {
     const tasks = store.tasks.filter((task) => task.projectId === project.id);
     const deployments = store.deployments.filter((deployment) => deployment.projectId === project.id);
     const incidents = store.incidents.filter((incident) => incident.projectId === project.id);
-    const healthChecks = store.projectHealthChecks.filter((check) => check.projectId === project.id).slice(0, 50);
+    await ensureRecentProjectHealthCheck(project, store.projectHealthChecks).catch((error) => console.error('Project health check failed', error));
+    const healthChecks = (await listProjectHealthChecksAsync(project.id)).slice(0, 50);
     res.json({ project, tasks, deployments, incidents, healthChecks });
 });
 

@@ -48,6 +48,8 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    env:
+      DEVPILOT_WEBHOOK_URL: ${{ secrets.DEVPILOT_DEPLOYMENT_WEBHOOK_URL }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -56,9 +58,9 @@ jobs:
         uses: actions/deploy-pages@v4
 
       - name: Notify DevPilot deployment succeeded
-        if: success() && secrets.DEVPILOT_DEPLOYMENT_WEBHOOK_URL != ''
+        if: success() && env.DEVPILOT_WEBHOOK_URL != ''
         run: |
-          curl -fsS -X POST "${{ secrets.DEVPILOT_DEPLOYMENT_WEBHOOK_URL }}" \
+          curl -fsS -X POST "$DEVPILOT_WEBHOOK_URL" \
             -H "Content-Type: application/json" \
             -d @- <<JSON
           {

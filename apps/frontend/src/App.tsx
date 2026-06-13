@@ -5,14 +5,21 @@ import { Overview } from './pages/Overview';
 import { Projects } from './pages/Projects';
 import { Button } from './components/ui/button';
 import { ToastHost } from './components/ui/toast-context';
-import { Analytics } from './pages/Analytics';
-import { Login } from './pages/Login';
+import { Login, type AuthUser } from './pages/Login';
 import { ProjectDetail } from './pages/ProjectDetail';
-import { Monitoring } from './pages/Monitoring';
+
+const readStoredUser = () => {
+  try {
+    return JSON.parse(localStorage.getItem('devpilot.user') || 'null') as AuthUser | null;
+  } catch {
+    return null;
+  }
+};
 
 const App = () => {
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
-  const [authenticated, setAuthenticated] = useState(() => localStorage.getItem('devpilot.authenticated') === 'true');
+  const [user, setUser] = useState<AuthUser | null>(() => readStoredUser());
+  const [authenticated, setAuthenticated] = useState(() => localStorage.getItem('devpilot.authenticated') === 'true' && Boolean(readStoredUser()));
 
   useEffect(() => {
     document.body.dataset.theme = theme;
@@ -20,14 +27,21 @@ const App = () => {
 
   const logout = () => {
     localStorage.removeItem('devpilot.authenticated');
+    localStorage.removeItem('devpilot.user');
     setAuthenticated(false);
+    setUser(null);
+  };
+
+  const login = (nextUser: AuthUser) => {
+    setUser(nextUser);
+    setAuthenticated(true);
   };
 
   return (
     <ToastHost>
       <BrowserRouter>
         <Routes>
-          <Route path="/login" element={<Login authenticated={authenticated} onLogin={() => setAuthenticated(true)} />} />
+          <Route path="/login" element={<Login authenticated={authenticated} onLogin={login} />} />
           <Route
             element={
               authenticated ? (
@@ -44,7 +58,7 @@ const App = () => {
                       <Button variant="subtle" onClick={logout}>Logout</Button>
                     </div>
                   </div>
-                  <AppLayout />
+                  <AppLayout user={user} />
                 </>
               ) : (
                 <Navigate to="/login" replace />
@@ -54,8 +68,8 @@ const App = () => {
             <Route index element={<Overview />} />
             <Route path="projects" element={<Projects />} />
             <Route path="projects/:id" element={<ProjectDetail />} />
-            <Route path="analytics" element={<Analytics />} />
-            <Route path="monitoring" element={<Monitoring />} />
+            <Route path="analytics" element={<Navigate to="/projects" replace />} />
+            <Route path="monitoring" element={<Navigate to="/projects" replace />} />
           </Route>
           <Route path="*" element={<Navigate to={authenticated ? '/' : '/login'} replace />} />
         </Routes>

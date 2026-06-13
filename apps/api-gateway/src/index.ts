@@ -2,6 +2,7 @@ import express from 'express';
 import { json } from 'body-parser';
 import cors from 'cors';
 import http from 'http';
+import https from 'https';
 import rateLimit from 'express-rate-limit';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { createRealtimeServer } from './realtime';
@@ -9,12 +10,9 @@ import { requireRole, getRole } from './rbac';
 import { recordActivity, listActivity } from './activity';
 import { searchRecords } from './search';
 import { upload } from './uploads';
-import { bump, snapshot } from './analytics';
+import { bump } from './analytics';
 import { enqueueJob, startJobWorker } from './jobs';
-import { generateChatResponse } from './chatbot';
 import {
-    analyzeIncidents,
-    calculateDoraMetrics,
     createDeployment,
     createIncident,
     createProject,
@@ -22,20 +20,220 @@ import {
     databaseInfo,
     deleteProject,
     deleteTask,
+    findProjectByDeploymentWebhookToken,
+    listIncidents,
+    listProjectHealthChecks,
     listProjects,
+    recordProjectHealthCheck,
     readStore,
     resetStore,
     updateIncident,
     updateProject,
     updateTask
 } from './store';
-import { githubSnapshot, syncGitHubRepository } from './github';
-import { observeDeploymentCreated, observeIncidentCreated, observeProjectCreated, observeTaskCreated, prometheusMiddleware, renderMetrics } from './metrics';
+import type { Deployment } from './store';
+import { observeDeploymentCreated, observeIncidentCreated, observeProjectCreated, observeTaskCreated, prometheusMiddleware, renderMetrics, requestHealthSummary } from './metrics';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const server = http.createServer(app);
 const realtime = createRealtimeServer(server);
+
+const normalizeDeploymentStatus = (status: unknown): Deployment['status'] => {
+    const value = String(status || '').trim().toLowerCase();
+    if (['success', 'succeeded', 'ready', 'completed', 'complete'].includes(value)) return 'Succeeded';
+    if (['failed', 'failure', 'error', 'errored', 'cancelled', 'canceled'].includes(value)) return 'Failed';
+    if (['running', 'in_progress', 'in-progress', 'building', 'deploying'].includes(value)) return 'Running';
+    if (['rolled_back', 'rolled-back', 'rollback'].includes(value)) return 'Rolled Back';
+    return 'Queued';
+};
+
+const normalizeDeploymentProvider = (provider: unknown): Deployment['provider'] => {
+    const value = String(provider || '').trim().toLowerCase();
+    const providers: Record<string, Deployment['provider']> = {
+        vercel: 'Vercel',
+        github: 'GitHub Actions',
+        'github actions': 'GitHub Actions',
+        github_actions: 'GitHub Actions',
+        railway: 'Railway',
+        render: 'Render',
+        manual: 'Manual',
+    };
+    return providers[value] || (value ? 'Other' : 'Manual');
+};
+
+const normalizeDeploymentEnvironment = (environment: unknown): Deployment['environment'] =>
+    String(environment || '').trim().toLowerCase() === 'production' ? 'production' : 'staging';
+
+const normalizeDeploymentTimestamp = (value: unknown) => {
+    if (!value) return new Date().toISOString();
+    const numeric = Number(value);
+    const parsed = Number.isFinite(numeric) ? new Date(numeric) : new Date(String(value));
+    return Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
+};
+
+const classifyProjectHealth = (statusCode: number, responseTimeMs: number, error = '') => {
+    if (error || statusCode >= 500 || statusCode === 0) return 'down';
+    if (statusCode >= 400 || responseTimeMs > 1500) return 'warning';
+    return 'healthy';
+};
+
+const checkProjectAppUrl = (projectId: string, appUrl: string) =>
+    new Promise<{ statusCode: number; responseTimeMs: number; error: string }>((resolve) => {
+        const startedAt = Date.now();
+        let url: URL;
+        try {
+            url = new URL(appUrl);
+        } catch {
+            resolve({ statusCode: 0, responseTimeMs: 0, error: 'Invalid app URL' });
+            return;
+        }
+
+        const client = url.protocol === 'https:' ? https : http;
+        const request = client.get(url, { timeout: 5000, headers: { 'user-agent': `DevPilot Health Checker/${projectId}` } }, (response) => {
+            response.resume();
+            response.on('end', () => {
+                resolve({
+                    statusCode: response.statusCode || 0,
+                    responseTimeMs: Date.now() - startedAt,
+                    error: '',
+                });
+            });
+        });
+        request.setTimeout(5000, () => {
+            request.destroy();
+            resolve({ statusCode: 0, responseTimeMs: Date.now() - startedAt, error: 'Health check timed out' });
+        });
+        request.on('error', (error) => {
+            resolve({ statusCode: 0, responseTimeMs: Date.now() - startedAt, error: error.message });
+        });
+    });
+
+const runProjectHealthChecks = async () => {
+    const projects = listProjects().filter((project) => project.status === 'Active' && project.appUrl);
+    await Promise.all(projects.map(async (project) => {
+        const result = await checkProjectAppUrl(project.id, project.appUrl);
+        const status = classifyProjectHealth(result.statusCode, result.responseTimeMs, result.error);
+        const check = recordProjectHealthCheck({
+            projectId: project.id,
+            appUrl: project.appUrl,
+            status,
+            statusCode: result.statusCode,
+            responseTimeMs: result.responseTimeMs,
+            error: result.error,
+        });
+
+        if (status === 'down') {
+            recordIncidentIfMissing({
+                projectId: project.id,
+                title: `Application health check failed: ${project.name}`,
+                description: result.error || `${project.appUrl} returned HTTP ${result.statusCode}.`,
+                severity: 'High',
+                service: project.serviceName,
+                actor: 'project-health-checker',
+            });
+        }
+
+        realtime.broadcast({ type: 'project.health.checked', payload: check });
+    }));
+};
+
+const deploymentFromWebhookPayload = (projectId: string, body: any): Partial<Deployment> => ({
+    projectId,
+    provider: normalizeDeploymentProvider(body.provider || body.source || body.deployment?.provider),
+    service: String(body.service || body.serviceName || body.name || body.deployment?.service || 'application-service'),
+    environment: normalizeDeploymentEnvironment(body.environment || body.target || body.deployment?.environment || 'production'),
+    status: normalizeDeploymentStatus(body.status || body.conclusion || body.state || body.deployment?.status),
+    version: String(body.version || body.release || body.tag || body.sha || body.commitSha || body.deployment?.version || `deploy-${Date.now()}`),
+    deploymentUrl: String(body.deploymentUrl || body.url || body.html_url || body.deploy_url || body.deployment?.url || ''),
+    commitSha: String(body.commitSha || body.sha || body.head_sha || body.commit?.sha || body.deployment?.commitSha || ''),
+    branch: String(body.branch || body.ref || body.git?.branch || body.deployment?.branch || ''),
+    triggeredBy: String(body.triggeredBy || body.actor || body.sender?.login || body.user?.login || body.deployment?.triggeredBy || ''),
+    externalId: String(body.externalId || body.id || body.deployment?.id || ''),
+    startedAt: String(body.deployedAt || body.startedAt || body.createdAt || body.created_at || new Date().toISOString()),
+    durationMinutes: Number(body.durationMinutes || body.duration || 0),
+});
+
+const deploymentFromVercelPayload = (projectId: string, serviceName: string, body: any): Partial<Deployment> => {
+    const payload = body.payload || body;
+    const deployment = payload.deployment || payload;
+    const meta = deployment.meta || payload.meta || {};
+    const eventType = String(body.type || payload.type || deployment.type || '').toLowerCase();
+    const deploymentId = deployment.id || payload.id || body.id || deployment.uid || '';
+    const deploymentUrl = deployment.url
+        ? String(deployment.url).startsWith('http') ? String(deployment.url) : `https://${deployment.url}`
+        : String(payload.url || body.url || '');
+    const commitSha = meta.githubCommitSha || meta.gitCommitSha || payload.gitSource?.sha || payload.sha || deployment.sha || '';
+    const branch = meta.githubCommitRef || meta.gitCommitRef || payload.gitSource?.ref || payload.target || deployment.target || '';
+    const status = eventType.includes('error') || eventType.includes('failed')
+        ? 'Failed'
+        : eventType.includes('ready') || eventType.includes('succeeded') || eventType.includes('success')
+            ? 'Succeeded'
+            : normalizeDeploymentStatus(deployment.state || payload.state || body.status);
+
+    return {
+        projectId,
+        provider: 'Vercel',
+        service: String(serviceName || payload.name || deployment.name || 'vercel-app'),
+        environment: normalizeDeploymentEnvironment(payload.target || deployment.target || meta.vercelTarget || 'production'),
+        status,
+        version: String(payload.name || deployment.name || (commitSha ? String(commitSha).slice(0, 7) : deploymentId || `vercel-${Date.now()}`)),
+        deploymentUrl,
+        commitSha: String(commitSha),
+        branch: String(branch),
+        triggeredBy: String(meta.githubCommitAuthorName || payload.user?.username || payload.creator?.username || body.user?.username || 'vercel'),
+        externalId: String(deploymentId),
+        startedAt: normalizeDeploymentTimestamp(deployment.createdAt || payload.createdAt || body.createdAt),
+        durationMinutes: 0,
+    };
+};
+
+const recordIncidentIfMissing = (input: {
+    projectId: string;
+    title: string;
+    description: string;
+    severity: 'Low' | 'Medium' | 'High' | 'Critical';
+    service: string;
+    actor: string;
+}) => {
+    const alreadyOpen = listIncidents().some((incident) =>
+        incident.projectId === input.projectId &&
+        incident.service === input.service &&
+        incident.title === input.title &&
+        incident.status !== 'Resolved'
+    );
+    if (alreadyOpen) return undefined;
+
+    const incident = createIncident({
+        projectId: input.projectId,
+        title: input.title,
+        description: input.description,
+        severity: input.severity,
+        status: 'Open',
+        service: input.service,
+        summary: input.description,
+    });
+    observeIncidentCreated();
+    recordActivity({
+        actor: input.actor,
+        role: 'system',
+        action: `incident.created:${incident.title}`,
+    });
+    realtime.broadcast({ type: 'incident.created', payload: incident });
+    return incident;
+};
+
+const recordDeploymentFailureIncident = (deployment: Deployment, actor: string) => {
+    if (!['Failed', 'Rolled Back'].includes(deployment.status)) return;
+    recordIncidentIfMissing({
+        projectId: deployment.projectId,
+        title: `Deployment ${deployment.status}: ${deployment.version}`,
+        description: `${deployment.provider} reported ${deployment.status.toLowerCase()} for ${deployment.service} ${deployment.version}.`,
+        severity: deployment.status === 'Failed' ? 'High' : 'Medium',
+        service: deployment.service,
+        actor,
+    });
+};
 
 const limiter = rateLimit({
     windowMs: 60 * 1000,
@@ -65,17 +263,13 @@ app.get('/', (_req, res) => {
         endpoints: [
             '/health',
             '/api/dashboard',
-            '/api/database',
-            '/api/github',
-            '/api/kubernetes',
-            '/api/dora',
-            '/api/incidents/analysis',
+            '/api/projects',
+            '/api/tasks',
+            '/api/deployments',
+            '/api/incidents',
+            '/api/service-health',
+            '/metrics',
             '/activity',
-            '/search',
-            '/analytics',
-            '/uploads',
-            '/jobs',
-            '/ai/chat'
         ]
     });
 });
@@ -84,17 +278,16 @@ app.get('/api/dashboard', (_req, res) => {
     const store = readStore();
     const oneWeekAgo = Date.now() - 7 * 86400000;
     const completedTasks = store.tasks.filter((task) => task.status === 'DONE').length;
-    const openIncidents = store.tasks.filter((task) => task.type === 'Incident' && task.status !== 'DONE').length;
     const openTrackedIncidents = store.incidents.filter((incident) => incident.status !== 'Resolved').length;
     const deploymentsThisWeek = store.deployments.filter((deployment) => new Date(deployment.startedAt).getTime() >= oneWeekAgo).length;
 
     res.json({
         metrics: [
-            { label: 'Total Projects', value: String(store.projects.length), trend: `${store.projects.filter((project) => project.status === 'Active').length} active` },
-            { label: 'Open Tasks', value: String(store.tasks.filter((task) => task.status !== 'DONE').length), trend: `${completedTasks} completed` },
-            { label: 'Completed Tasks', value: String(completedTasks), trend: 'database records' },
-            { label: 'Open Incidents', value: String(openTrackedIncidents + openIncidents), trend: 'project incidents' },
-            { label: 'Deployments This Week', value: String(deploymentsThisWeek), trend: 'deployment records' },
+            { label: 'Total Projects', value: String(store.projects.length) },
+            { label: 'Open Tasks', value: String(store.tasks.filter((task) => task.status !== 'DONE').length) },
+            { label: 'Completed Tasks', value: String(completedTasks) },
+            { label: 'Open Incidents', value: String(openTrackedIncidents) },
+            { label: 'Deployments This Week', value: String(deploymentsThisWeek) },
         ],
         timeline: store.deployments.map((deployment) => ({
             title: `${deployment.service} ${deployment.status}`,
@@ -115,6 +308,7 @@ app.get('/api/projects', (_req, res) => {
     const projects = listProjects().map((project) => ({
         ...project,
         taskCount: store.tasks.filter((task) => task.projectId === project.id).length,
+        openTasks: store.tasks.filter((task) => task.projectId === project.id && task.status !== 'DONE').length,
         openIncidents: store.incidents.filter((incident) => incident.projectId === project.id && incident.status !== 'Resolved').length,
     }));
     res.json({ projects });
@@ -171,7 +365,12 @@ app.get('/api/projects/:projectId/summary', (req, res) => {
     const tasks = store.tasks.filter((task) => task.projectId === project.id);
     const deployments = store.deployments.filter((deployment) => deployment.projectId === project.id);
     const incidents = store.incidents.filter((incident) => incident.projectId === project.id);
-    res.json({ project, tasks, deployments, incidents });
+    const healthChecks = store.projectHealthChecks.filter((check) => check.projectId === project.id).slice(0, 50);
+    res.json({ project, tasks, deployments, incidents, healthChecks });
+});
+
+app.get('/api/projects/:projectId/health-checks', (req, res) => {
+    res.json({ healthChecks: listProjectHealthChecks(req.params.projectId).slice(0, 50) });
 });
 
 app.get('/api/tasks', (req, res) => {
@@ -201,7 +400,7 @@ app.patch('/api/tasks/:id', (req, res) => {
     recordActivity({
         actor: req.header('x-user') || 'product',
         role: getRole(req),
-        action: req.body?.status ? `task.moved:${task.title}:${task.status}` : `task.updated:${task.title}`,
+        action: req.body?.status === 'DONE' ? `task.completed:${task.title}` : req.body?.status ? `task.updated:${task.title}` : `task.updated:${task.title}`,
     });
     realtime.broadcast({ type: 'task.updated', payload: task });
     res.json({ task });
@@ -234,60 +433,60 @@ app.post('/api/deployments', (req, res) => {
     recordActivity({
         actor: req.header('x-user') || 'release',
         role: getRole(req),
-        action: `deployment.created:${deployment.version}`,
+        action: `deployment.added:${deployment.version}`,
     });
+    recordDeploymentFailureIncident(deployment, req.header('x-user') || deployment.triggeredBy || deployment.provider);
+    realtime.broadcast({ type: 'deployment.created', payload: deployment });
+    res.status(201).json({ deployment });
+});
+
+app.post('/api/projects/:projectId/deployments/webhook', (req, res) => {
+    const project = listProjects().find((item) => item.id === req.params.projectId);
+    if (!project) {
+        res.status(404).json({ error: 'Project not found' });
+        return;
+    }
+
+    const deployment = createDeployment(deploymentFromWebhookPayload(project.id, req.body || {}));
+    observeDeploymentCreated();
+    recordActivity({
+        actor: req.header('x-user') || deployment.triggeredBy || deployment.provider,
+        role: getRole(req),
+        action: `deployment.added:${deployment.version}`,
+    });
+    recordDeploymentFailureIncident(deployment, req.header('x-user') || deployment.triggeredBy || deployment.provider);
+    realtime.broadcast({ type: 'deployment.created', payload: deployment });
+    res.status(201).json({ deployment });
+});
+
+app.post('/webhooks/deployments/:token', (req, res) => {
+    const project = findProjectByDeploymentWebhookToken(req.params.token);
+    if (!project) {
+        res.status(404).json({ error: 'Deployment webhook not found' });
+        return;
+    }
+
+    const provider = normalizeDeploymentProvider(req.body?.provider || req.body?.source || req.body?.type?.split('.')?.[0]);
+    const deploymentInput = provider === 'Vercel' || String(req.body?.type || '').toLowerCase().startsWith('deployment.')
+        ? deploymentFromVercelPayload(project.id, project.serviceName, req.body || {})
+        : {
+            ...deploymentFromWebhookPayload(project.id, req.body || {}),
+            service: req.body?.service || req.body?.serviceName || project.serviceName || 'application-service',
+        };
+    const deployment = createDeployment(deploymentInput);
+    observeDeploymentCreated();
+    recordActivity({
+        actor: deployment.triggeredBy || deployment.provider,
+        role: 'system',
+        action: `deployment.added:${deployment.version}`,
+    });
+    recordDeploymentFailureIncident(deployment, deployment.triggeredBy || deployment.provider);
     realtime.broadcast({ type: 'deployment.created', payload: deployment });
     res.status(201).json({ deployment });
 });
 
 app.get('/api/slos', (_req, res) => {
     res.json({ slos: readStore().slos });
-});
-
-app.get('/api/github', (_req, res) => {
-    res.json(githubSnapshot());
-});
-
-app.post('/api/github/sync', async (req, res) => {
-    const owner = String(req.body?.owner || req.query.owner || '').trim();
-    const repo = String(req.body?.repo || req.query.repo || '').trim();
-    if (!owner || !repo) {
-        res.status(400).json({ error: 'owner and repo are required' });
-        return;
-    }
-
-    try {
-        const snapshot = await syncGitHubRepository(owner, repo);
-        recordActivity({
-            actor: req.header('x-user') || 'github-sync',
-            role: getRole(req),
-            action: `github.synced:${owner}/${repo}`,
-        });
-        res.json(snapshot);
-    } catch (error) {
-        res.status(502).json({
-            error: 'GitHub sync failed',
-            detail: error instanceof Error ? error.message : 'Unknown error',
-            snapshot: githubSnapshot(),
-        });
-    }
-});
-
-app.get('/api/kubernetes', (_req, res) => {
-    const store = readStore();
-    res.json({
-        nodes: store.kubernetesNodes,
-        pods: store.kubernetesPods,
-        deployments: store.kubernetesDeployments,
-    });
-});
-
-app.get('/api/dora', (_req, res) => {
-    res.json(calculateDoraMetrics());
-});
-
-app.get('/api/incidents/analysis', (_req, res) => {
-    res.json(analyzeIncidents());
 });
 
 app.get('/api/incidents', (req, res) => {
@@ -390,7 +589,28 @@ app.get('/api/service-health', async (_req, res) => {
             timestamp: new Date().toISOString(),
         };
     }));
+    const projects = listProjects();
+    services
+        .filter((service) => service.status === 'unhealthy')
+        .forEach((service) => {
+            projects
+                .filter((project) => project.serviceName === service.service)
+                .forEach((project) => {
+                    recordIncidentIfMissing({
+                        projectId: project.id,
+                        title: `Health check failed: ${service.name}`,
+                        description: `${service.name} health endpoint ${service.path} is currently unhealthy.`,
+                        severity: 'High',
+                        service: service.service,
+                        actor: 'health-monitor',
+                    });
+                });
+        });
     res.json({ services });
+});
+
+app.get('/api/monitoring/summary', (_req, res) => {
+    res.json(requestHealthSummary());
 });
 
 app.get('/metrics', (_req, res) => {
@@ -450,62 +670,6 @@ app.post('/jobs', requireRole(['admin']), (req, res) => {
     res.json({ status: 'queued', job });
 });
 
-app.get('/analytics', requireRole(['admin', 'manager']), (_req, res) => {
-    res.json({ snapshot: snapshot() });
-});
-
-app.get('/api/analytics', (_req, res) => {
-    const store = readStore();
-    const completedTasks = store.tasks.filter((task) => task.status === 'DONE').length;
-    const pendingTasks = store.tasks.length - completedTasks;
-
-    const days = Array.from({ length: 7 }, (_, index) => {
-        const date = new Date(Date.now() - (6 - index) * 86400000).toISOString().slice(0, 10);
-        const dayStart = new Date(`${date}T00:00:00.000Z`).getTime();
-        const dayEnd = dayStart + 86400000;
-        return {
-            date,
-            projects: store.projects.filter((project) => new Date(project.createdAt).getTime() <= dayEnd).length,
-            tasks: store.tasks.filter((task) => {
-                const created = new Date(task.createdAt).getTime();
-                return created >= dayStart && created < dayEnd;
-            }).length,
-            deployments: store.deployments.filter((deployment) => {
-                const created = new Date(deployment.startedAt).getTime();
-                return created >= dayStart && created < dayEnd;
-            }).length,
-            incidents: store.incidents.filter((incident) => {
-                const created = new Date(incident.createdAt).getTime();
-                return created >= dayStart && created < dayEnd;
-            }).length,
-        };
-    });
-
-    res.json({
-        cards: {
-            totalProjects: store.projects.length,
-            activeProjects: store.projects.filter((project) => project.status === 'Active').length,
-            openTasks: pendingTasks,
-            completedTasks,
-            deployments: store.deployments.length,
-            incidents: store.incidents.length,
-        },
-        series: days,
-    });
-});
-
-app.post('/ai/chat', (req, res) => {
-    bump('chatMessages');
-    const prompt = String(req.body?.prompt || '');
-    const response = generateChatResponse(prompt);
-    recordActivity({
-        actor: req.header('x-user') || 'assistant',
-        role: getRole(req),
-        action: 'ai.chat',
-    });
-    res.json({ prompt, response });
-});
-
 if (process.env.ENABLE_SERVICE_PROXY === 'true') {
     const serviceRoutes = {
         '/auth': { target: 'http://auth-service:3001', changeOrigin: true },
@@ -519,6 +683,10 @@ if (process.env.ENABLE_SERVICE_PROXY === 'true') {
 }
 
 startJobWorker(realtime.broadcast);
+runProjectHealthChecks().catch((error) => console.error('Project health check failed', error));
+setInterval(() => {
+    runProjectHealthChecks().catch((error) => console.error('Project health check failed', error));
+}, Number(process.env.PROJECT_HEALTH_CHECK_INTERVAL_MS || 30000));
 
 // Start the server
 server.listen(PORT, () => {

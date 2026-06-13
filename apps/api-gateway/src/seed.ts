@@ -1,10 +1,7 @@
 import { resetStore } from './store';
-import { recordActivity } from './activity';
+import { clearActivity } from './activity';
 
 const store = resetStore();
+clearActivity();
 
-recordActivity({ actor: 'seed', role: 'system', action: `project.created:${store.projects.length}` });
-recordActivity({ actor: 'seed', role: 'system', action: `task.created:${store.tasks.length}` });
-recordActivity({ actor: 'seed', role: 'system', action: 'project.updated:demo-data-ready' });
-
-console.log(`Seeded ${store.projects.length} projects and ${store.tasks.length} tasks.`);
+console.log(`Cleared local data. Projects: ${store.projects.length}, tasks: ${store.tasks.length}.`);

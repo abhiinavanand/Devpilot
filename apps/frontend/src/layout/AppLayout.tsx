@@ -2,15 +2,18 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { Card } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/tooltip';
+import type { AuthUser } from '../pages/Login';
 
 const navItems = [
   { label: 'Overview', path: '/' },
   { label: 'Projects', path: '/projects' },
-  { label: 'Analytics', path: '/analytics' },
-  { label: 'Monitoring', path: '/monitoring' },
 ];
 
-export const AppLayout = () => (
+type AppLayoutProps = {
+  user: AuthUser | null;
+};
+
+export const AppLayout = ({ user }: AppLayoutProps) => (
   <TooltipProvider>
     <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[280px_1fr]">
       <aside className="flex flex-col gap-6 border-r border-border bg-card px-6 py-8">
@@ -41,10 +44,10 @@ export const AppLayout = () => (
         </div>
         <Card className="space-y-2">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">Demo Account</h3>
+            <h3 className="text-sm font-semibold">{user?.name || 'Signed in'}</h3>
             <Badge className="bg-success/15 text-success">Logged in</Badge>
           </div>
-          <p className="text-xs text-muted">demo@devpilot.ai</p>
+          <p className="text-xs text-muted">{user?.email || 'Local account'}</p>
         </Card>
       </aside>
 

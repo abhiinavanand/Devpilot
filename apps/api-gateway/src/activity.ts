@@ -43,3 +43,7 @@ export const recordActivity = (entry: Omit<ActivityLog, 'id' | 'timestamp'>) => 
 };
 
 export const listActivity = () => readLogs().slice(0, 50);
+
+export const clearActivity = () => {
+  writeLogs([]);
+};

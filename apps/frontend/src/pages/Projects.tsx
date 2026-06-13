@@ -3,7 +3,14 @@ import { Link } from 'react-router-dom';
 import { Edit3, ExternalLink, Plus, Trash2 } from 'lucide-react';
 import { workspaceApi, type Project } from '../api/workspace';
 
-const emptyProject: Pick<Project, 'name' | 'description' | 'owner' | 'status'> = { name: '', description: '', owner: '', status: 'Active' };
+const emptyProject: Pick<Project, 'name' | 'description' | 'owner' | 'serviceName' | 'appUrl' | 'status'> = {
+  name: '',
+  description: '',
+  owner: '',
+  serviceName: '',
+  appUrl: '',
+  status: 'Active',
+};
 
 export const Projects = () => {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -26,7 +33,10 @@ export const Projects = () => {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!draft.name.trim()) return;
+    if (!draft.name.trim() || !draft.serviceName.trim() || !draft.appUrl.trim()) {
+      setError('Project name, service name, and app URL are required.');
+      return;
+    }
 
     if (editing) {
       const { project } = await workspaceApi.updateProject(editing.id, draft);
@@ -36,12 +46,13 @@ export const Projects = () => {
       const { project } = await workspaceApi.createProject(draft);
       setProjects((current) => [project, ...current]);
     }
+    setError('');
     setDraft(emptyProject);
   };
 
   const startEdit = (project: Project) => {
     setEditing(project);
-    setDraft({ name: project.name, description: project.description, owner: project.owner, status: project.status });
+    setDraft({ name: project.name, description: project.description, owner: project.owner, serviceName: project.serviceName, appUrl: project.appUrl, status: project.status });
   };
 
   const deleteProject = async (project: Project) => {
@@ -53,28 +64,30 @@ export const Projects = () => {
     <div className="space-y-6">
       <div>
         <h1>Projects</h1>
-        <p className="subtle">Create projects, open workspaces, and track task and incident ownership.</p>
+        <p className="subtle">Create a project, then open it to manage tasks, deployments, incidents, and monitoring.</p>
       </div>
       {error ? <p className="subtle">{error}</p> : null}
 
-      <form className="card grid gap-3 md:grid-cols-[1fr_1fr_160px_auto]" onSubmit={submit}>
+      <form className="card grid gap-3 md:grid-cols-[1fr_1fr_1fr_160px_auto]" onSubmit={submit}>
         <input className="editor min-h-0" placeholder="Project name" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
         <input className="editor min-h-0" placeholder="Owner" value={draft.owner} onChange={(event) => setDraft({ ...draft, owner: event.target.value })} />
+        <input className="editor min-h-0" placeholder="Service name, e.g. analytics-service" value={draft.serviceName} onChange={(event) => setDraft({ ...draft, serviceName: event.target.value })} />
         <select className="editor min-h-0" value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as Project['status'] })}>
           {['Active', 'Paused', 'Completed'].map((status) => <option key={status}>{status}</option>)}
         </select>
         <button className="toggle inline-flex items-center justify-center gap-2" type="submit"><Plus size={16} /> {editing ? 'Save' : 'Create'}</button>
-        <textarea className="editor md:col-span-4" placeholder="Description" value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
+        <input className="editor min-h-0 md:col-span-5" placeholder="App URL to monitor, e.g. https://your-app.vercel.app" value={draft.appUrl} onChange={(event) => setDraft({ ...draft, appUrl: event.target.value })} />
+        <textarea className="editor md:col-span-5" placeholder="Description" value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
       </form>
 
       <div className="card overflow-x-auto">
         <table className="data-table">
           <thead>
             <tr>
-              <th>Name</th>
+              <th>Project Name</th>
               <th>Owner</th>
               <th>Status</th>
-              <th>Task Count</th>
+              <th>Open Tasks</th>
               <th>Open Incidents</th>
               <th>Actions</th>
             </tr>
@@ -85,7 +98,7 @@ export const Projects = () => {
                 <td><strong>{project.name}</strong></td>
                 <td>{project.owner}</td>
                 <td><span className="badge">{project.status}</span></td>
-                <td>{project.taskCount ?? 0}</td>
+                <td>{project.openTasks ?? 0}</td>
                 <td>{project.openIncidents ?? 0}</td>
                 <td>
                   <div className="flex gap-2">

@@ -7,6 +7,7 @@ const express_1 = __importDefault(require("express"));
 const body_parser_1 = require("body-parser");
 const cors_1 = __importDefault(require("cors"));
 const http_1 = __importDefault(require("http"));
+const https_1 = __importDefault(require("https"));
 const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
 const http_proxy_middleware_1 = require("http-proxy-middleware");
 const realtime_1 = require("./realtime");
@@ -16,14 +17,191 @@ const search_1 = require("./search");
 const uploads_1 = require("./uploads");
 const analytics_1 = require("./analytics");
 const jobs_1 = require("./jobs");
-const chatbot_1 = require("./chatbot");
 const store_1 = require("./store");
-const github_1 = require("./github");
 const metrics_1 = require("./metrics");
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 3000;
 const server = http_1.default.createServer(app);
 const realtime = (0, realtime_1.createRealtimeServer)(server);
+const normalizeDeploymentStatus = (status) => {
+    const value = String(status || '').trim().toLowerCase();
+    if (['success', 'succeeded', 'ready', 'completed', 'complete'].includes(value))
+        return 'Succeeded';
+    if (['failed', 'failure', 'error', 'errored', 'cancelled', 'canceled'].includes(value))
+        return 'Failed';
+    if (['running', 'in_progress', 'in-progress', 'building', 'deploying'].includes(value))
+        return 'Running';
+    if (['rolled_back', 'rolled-back', 'rollback'].includes(value))
+        return 'Rolled Back';
+    return 'Queued';
+};
+const normalizeDeploymentProvider = (provider) => {
+    const value = String(provider || '').trim().toLowerCase();
+    const providers = {
+        vercel: 'Vercel',
+        github: 'GitHub Actions',
+        'github actions': 'GitHub Actions',
+        github_actions: 'GitHub Actions',
+        railway: 'Railway',
+        render: 'Render',
+        manual: 'Manual',
+    };
+    return providers[value] || (value ? 'Other' : 'Manual');
+};
+const normalizeDeploymentEnvironment = (environment) => String(environment || '').trim().toLowerCase() === 'production' ? 'production' : 'staging';
+const normalizeDeploymentTimestamp = (value) => {
+    if (!value)
+        return new Date().toISOString();
+    const numeric = Number(value);
+    const parsed = Number.isFinite(numeric) ? new Date(numeric) : new Date(String(value));
+    return Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
+};
+const classifyProjectHealth = (statusCode, responseTimeMs, error = '') => {
+    if (error || statusCode >= 500 || statusCode === 0)
+        return 'down';
+    if (statusCode >= 400 || responseTimeMs > 1500)
+        return 'warning';
+    return 'healthy';
+};
+const checkProjectAppUrl = (projectId, appUrl) => new Promise((resolve) => {
+    const startedAt = Date.now();
+    let url;
+    try {
+        url = new URL(appUrl);
+    }
+    catch {
+        resolve({ statusCode: 0, responseTimeMs: 0, error: 'Invalid app URL' });
+        return;
+    }
+    const client = url.protocol === 'https:' ? https_1.default : http_1.default;
+    const request = client.get(url, { timeout: 5000, headers: { 'user-agent': `DevPilot Health Checker/${projectId}` } }, (response) => {
+        response.resume();
+        response.on('end', () => {
+            resolve({
+                statusCode: response.statusCode || 0,
+                responseTimeMs: Date.now() - startedAt,
+                error: '',
+            });
+        });
+    });
+    request.setTimeout(5000, () => {
+        request.destroy();
+        resolve({ statusCode: 0, responseTimeMs: Date.now() - startedAt, error: 'Health check timed out' });
+    });
+    request.on('error', (error) => {
+        resolve({ statusCode: 0, responseTimeMs: Date.now() - startedAt, error: error.message });
+    });
+});
+const runProjectHealthChecks = async () => {
+    const projects = (0, store_1.listProjects)().filter((project) => project.status === 'Active' && project.appUrl);
+    await Promise.all(projects.map(async (project) => {
+        const result = await checkProjectAppUrl(project.id, project.appUrl);
+        const status = classifyProjectHealth(result.statusCode, result.responseTimeMs, result.error);
+        const check = (0, store_1.recordProjectHealthCheck)({
+            projectId: project.id,
+            appUrl: project.appUrl,
+            status,
+            statusCode: result.statusCode,
+            responseTimeMs: result.responseTimeMs,
+            error: result.error,
+        });
+        if (status === 'down') {
+            recordIncidentIfMissing({
+                projectId: project.id,
+                title: `Application health check failed: ${project.name}`,
+                description: result.error || `${project.appUrl} returned HTTP ${result.statusCode}.`,
+                severity: 'High',
+                service: project.serviceName,
+                actor: 'project-health-checker',
+            });
+        }
+        realtime.broadcast({ type: 'project.health.checked', payload: check });
+    }));
+};
+const deploymentFromWebhookPayload = (projectId, body) => ({
+    projectId,
+    provider: normalizeDeploymentProvider(body.provider || body.source || body.deployment?.provider),
+    service: String(body.service || body.serviceName || body.name || body.deployment?.service || 'application-service'),
+    environment: normalizeDeploymentEnvironment(body.environment || body.target || body.deployment?.environment || 'production'),
+    status: normalizeDeploymentStatus(body.status || body.conclusion || body.state || body.deployment?.status),
+    version: String(body.version || body.release || body.tag || body.sha || body.commitSha || body.deployment?.version || `deploy-${Date.now()}`),
+    deploymentUrl: String(body.deploymentUrl || body.url || body.html_url || body.deploy_url || body.deployment?.url || ''),
+    commitSha: String(body.commitSha || body.sha || body.head_sha || body.commit?.sha || body.deployment?.commitSha || ''),
+    branch: String(body.branch || body.ref || body.git?.branch || body.deployment?.branch || ''),
+    triggeredBy: String(body.triggeredBy || body.actor || body.sender?.login || body.user?.login || body.deployment?.triggeredBy || ''),
+    externalId: String(body.externalId || body.id || body.deployment?.id || ''),
+    startedAt: String(body.deployedAt || body.startedAt || body.createdAt || body.created_at || new Date().toISOString()),
+    durationMinutes: Number(body.durationMinutes || body.duration || 0),
+});
+const deploymentFromVercelPayload = (projectId, serviceName, body) => {
+    const payload = body.payload || body;
+    const deployment = payload.deployment || payload;
+    const meta = deployment.meta || payload.meta || {};
+    const eventType = String(body.type || payload.type || deployment.type || '').toLowerCase();
+    const deploymentId = deployment.id || payload.id || body.id || deployment.uid || '';
+    const deploymentUrl = deployment.url
+        ? String(deployment.url).startsWith('http') ? String(deployment.url) : `https://${deployment.url}`
+        : String(payload.url || body.url || '');
+    const commitSha = meta.githubCommitSha || meta.gitCommitSha || payload.gitSource?.sha || payload.sha || deployment.sha || '';
+    const branch = meta.githubCommitRef || meta.gitCommitRef || payload.gitSource?.ref || payload.target || deployment.target || '';
+    const status = eventType.includes('error') || eventType.includes('failed')
+        ? 'Failed'
+        : eventType.includes('ready') || eventType.includes('succeeded') || eventType.includes('success')
+            ? 'Succeeded'
+            : normalizeDeploymentStatus(deployment.state || payload.state || body.status);
+    return {
+        projectId,
+        provider: 'Vercel',
+        service: String(serviceName || payload.name || deployment.name || 'vercel-app'),
+        environment: normalizeDeploymentEnvironment(payload.target || deployment.target || meta.vercelTarget || 'production'),
+        status,
+        version: String(payload.name || deployment.name || (commitSha ? String(commitSha).slice(0, 7) : deploymentId || `vercel-${Date.now()}`)),
+        deploymentUrl,
+        commitSha: String(commitSha),
+        branch: String(branch),
+        triggeredBy: String(meta.githubCommitAuthorName || payload.user?.username || payload.creator?.username || body.user?.username || 'vercel'),
+        externalId: String(deploymentId),
+        startedAt: normalizeDeploymentTimestamp(deployment.createdAt || payload.createdAt || body.createdAt),
+        durationMinutes: 0,
+    };
+};
+const recordIncidentIfMissing = (input) => {
+    const alreadyOpen = (0, store_1.listIncidents)().some((incident) => incident.projectId === input.projectId &&
+        incident.service === input.service &&
+        incident.title === input.title &&
+        incident.status !== 'Resolved');
+    if (alreadyOpen)
+        return undefined;
+    const incident = (0, store_1.createIncident)({
+        projectId: input.projectId,
+        title: input.title,
+        description: input.description,
+        severity: input.severity,
+        status: 'Open',
+        service: input.service,
+        summary: input.description,
+    });
+    (0, metrics_1.observeIncidentCreated)();
+    (0, activity_1.recordActivity)({
+        actor: input.actor,
+        role: 'system',
+        action: `incident.created:${incident.title}`,
+    });
+    realtime.broadcast({ type: 'incident.created', payload: incident });
+    return incident;
+};
+const recordDeploymentFailureIncident = (deployment, actor) => {
+    if (!['Failed', 'Rolled Back'].includes(deployment.status))
+        return;
+    recordIncidentIfMissing({
+        projectId: deployment.projectId,
+        title: `Deployment ${deployment.status}: ${deployment.version}`,
+        description: `${deployment.provider} reported ${deployment.status.toLowerCase()} for ${deployment.service} ${deployment.version}.`,
+        severity: deployment.status === 'Failed' ? 'High' : 'Medium',
+        service: deployment.service,
+        actor,
+    });
+};
 const limiter = (0, express_rate_limit_1.default)({
     windowMs: 60 * 1000,
     limit: 120,
@@ -49,17 +227,13 @@ app.get('/', (_req, res) => {
         endpoints: [
             '/health',
             '/api/dashboard',
-            '/api/database',
-            '/api/github',
-            '/api/kubernetes',
-            '/api/dora',
-            '/api/incidents/analysis',
+            '/api/projects',
+            '/api/tasks',
+            '/api/deployments',
+            '/api/incidents',
+            '/api/service-health',
+            '/metrics',
             '/activity',
-            '/search',
-            '/analytics',
-            '/uploads',
-            '/jobs',
-            '/ai/chat'
         ]
     });
 });
@@ -67,16 +241,15 @@ app.get('/api/dashboard', (_req, res) => {
     const store = (0, store_1.readStore)();
     const oneWeekAgo = Date.now() - 7 * 86400000;
     const completedTasks = store.tasks.filter((task) => task.status === 'DONE').length;
-    const openIncidents = store.tasks.filter((task) => task.type === 'Incident' && task.status !== 'DONE').length;
     const openTrackedIncidents = store.incidents.filter((incident) => incident.status !== 'Resolved').length;
     const deploymentsThisWeek = store.deployments.filter((deployment) => new Date(deployment.startedAt).getTime() >= oneWeekAgo).length;
     res.json({
         metrics: [
-            { label: 'Total Projects', value: String(store.projects.length), trend: `${store.projects.filter((project) => project.status === 'Active').length} active` },
-            { label: 'Open Tasks', value: String(store.tasks.filter((task) => task.status !== 'DONE').length), trend: `${completedTasks} completed` },
-            { label: 'Completed Tasks', value: String(completedTasks), trend: 'database records' },
-            { label: 'Open Incidents', value: String(openTrackedIncidents + openIncidents), trend: 'project incidents' },
-            { label: 'Deployments This Week', value: String(deploymentsThisWeek), trend: 'deployment records' },
+            { label: 'Total Projects', value: String(store.projects.length) },
+            { label: 'Open Tasks', value: String(store.tasks.filter((task) => task.status !== 'DONE').length) },
+            { label: 'Completed Tasks', value: String(completedTasks) },
+            { label: 'Open Incidents', value: String(openTrackedIncidents) },
+            { label: 'Deployments This Week', value: String(deploymentsThisWeek) },
         ],
         timeline: store.deployments.map((deployment) => ({
             title: `${deployment.service} ${deployment.status}`,
@@ -95,6 +268,7 @@ app.get('/api/projects', (_req, res) => {
     const projects = (0, store_1.listProjects)().map((project) => ({
         ...project,
         taskCount: store.tasks.filter((task) => task.projectId === project.id).length,
+        openTasks: store.tasks.filter((task) => task.projectId === project.id && task.status !== 'DONE').length,
         openIncidents: store.incidents.filter((incident) => incident.projectId === project.id && incident.status !== 'Resolved').length,
     }));
     res.json({ projects });
@@ -146,7 +320,11 @@ app.get('/api/projects/:projectId/summary', (req, res) => {
     const tasks = store.tasks.filter((task) => task.projectId === project.id);
     const deployments = store.deployments.filter((deployment) => deployment.projectId === project.id);
     const incidents = store.incidents.filter((incident) => incident.projectId === project.id);
-    res.json({ project, tasks, deployments, incidents });
+    const healthChecks = store.projectHealthChecks.filter((check) => check.projectId === project.id).slice(0, 50);
+    res.json({ project, tasks, deployments, incidents, healthChecks });
+});
+app.get('/api/projects/:projectId/health-checks', (req, res) => {
+    res.json({ healthChecks: (0, store_1.listProjectHealthChecks)(req.params.projectId).slice(0, 50) });
 });
 app.get('/api/tasks', (req, res) => {
     const projectId = String(req.query.projectId || '');
@@ -173,7 +351,7 @@ app.patch('/api/tasks/:id', (req, res) => {
     (0, activity_1.recordActivity)({
         actor: req.header('x-user') || 'product',
         role: (0, rbac_1.getRole)(req),
-        action: req.body?.status ? `task.moved:${task.title}:${task.status}` : `task.updated:${task.title}`,
+        action: req.body?.status === 'DONE' ? `task.completed:${task.title}` : req.body?.status ? `task.updated:${task.title}` : `task.updated:${task.title}`,
     });
     realtime.broadcast({ type: 'task.updated', payload: task });
     res.json({ task });
@@ -203,54 +381,55 @@ app.post('/api/deployments', (req, res) => {
     (0, activity_1.recordActivity)({
         actor: req.header('x-user') || 'release',
         role: (0, rbac_1.getRole)(req),
-        action: `deployment.created:${deployment.version}`,
+        action: `deployment.added:${deployment.version}`,
     });
+    recordDeploymentFailureIncident(deployment, req.header('x-user') || deployment.triggeredBy || deployment.provider);
+    realtime.broadcast({ type: 'deployment.created', payload: deployment });
+    res.status(201).json({ deployment });
+});
+app.post('/api/projects/:projectId/deployments/webhook', (req, res) => {
+    const project = (0, store_1.listProjects)().find((item) => item.id === req.params.projectId);
+    if (!project) {
+        res.status(404).json({ error: 'Project not found' });
+        return;
+    }
+    const deployment = (0, store_1.createDeployment)(deploymentFromWebhookPayload(project.id, req.body || {}));
+    (0, metrics_1.observeDeploymentCreated)();
+    (0, activity_1.recordActivity)({
+        actor: req.header('x-user') || deployment.triggeredBy || deployment.provider,
+        role: (0, rbac_1.getRole)(req),
+        action: `deployment.added:${deployment.version}`,
+    });
+    recordDeploymentFailureIncident(deployment, req.header('x-user') || deployment.triggeredBy || deployment.provider);
+    realtime.broadcast({ type: 'deployment.created', payload: deployment });
+    res.status(201).json({ deployment });
+});
+app.post('/webhooks/deployments/:token', (req, res) => {
+    const project = (0, store_1.findProjectByDeploymentWebhookToken)(req.params.token);
+    if (!project) {
+        res.status(404).json({ error: 'Deployment webhook not found' });
+        return;
+    }
+    const provider = normalizeDeploymentProvider(req.body?.provider || req.body?.source || req.body?.type?.split('.')?.[0]);
+    const deploymentInput = provider === 'Vercel' || String(req.body?.type || '').toLowerCase().startsWith('deployment.')
+        ? deploymentFromVercelPayload(project.id, project.serviceName, req.body || {})
+        : {
+            ...deploymentFromWebhookPayload(project.id, req.body || {}),
+            service: req.body?.service || req.body?.serviceName || project.serviceName || 'application-service',
+        };
+    const deployment = (0, store_1.createDeployment)(deploymentInput);
+    (0, metrics_1.observeDeploymentCreated)();
+    (0, activity_1.recordActivity)({
+        actor: deployment.triggeredBy || deployment.provider,
+        role: 'system',
+        action: `deployment.added:${deployment.version}`,
+    });
+    recordDeploymentFailureIncident(deployment, deployment.triggeredBy || deployment.provider);
     realtime.broadcast({ type: 'deployment.created', payload: deployment });
     res.status(201).json({ deployment });
 });
 app.get('/api/slos', (_req, res) => {
     res.json({ slos: (0, store_1.readStore)().slos });
-});
-app.get('/api/github', (_req, res) => {
-    res.json((0, github_1.githubSnapshot)());
-});
-app.post('/api/github/sync', async (req, res) => {
-    const owner = String(req.body?.owner || req.query.owner || '').trim();
-    const repo = String(req.body?.repo || req.query.repo || '').trim();
-    if (!owner || !repo) {
-        res.status(400).json({ error: 'owner and repo are required' });
-        return;
-    }
-    try {
-        const snapshot = await (0, github_1.syncGitHubRepository)(owner, repo);
-        (0, activity_1.recordActivity)({
-            actor: req.header('x-user') || 'github-sync',
-            role: (0, rbac_1.getRole)(req),
-            action: `github.synced:${owner}/${repo}`,
-        });
-        res.json(snapshot);
-    }
-    catch (error) {
-        res.status(502).json({
-            error: 'GitHub sync failed',
-            detail: error instanceof Error ? error.message : 'Unknown error',
-            snapshot: (0, github_1.githubSnapshot)(),
-        });
-    }
-});
-app.get('/api/kubernetes', (_req, res) => {
-    const store = (0, store_1.readStore)();
-    res.json({
-        nodes: store.kubernetesNodes,
-        pods: store.kubernetesPods,
-        deployments: store.kubernetesDeployments,
-    });
-});
-app.get('/api/dora', (_req, res) => {
-    res.json((0, store_1.calculateDoraMetrics)());
-});
-app.get('/api/incidents/analysis', (_req, res) => {
-    res.json((0, store_1.analyzeIncidents)());
 });
 app.get('/api/incidents', (req, res) => {
     const projectId = String(req.query.projectId || '');
@@ -338,7 +517,27 @@ app.get('/api/service-health', async (_req, res) => {
             timestamp: new Date().toISOString(),
         };
     }));
+    const projects = (0, store_1.listProjects)();
+    services
+        .filter((service) => service.status === 'unhealthy')
+        .forEach((service) => {
+        projects
+            .filter((project) => project.serviceName === service.service)
+            .forEach((project) => {
+            recordIncidentIfMissing({
+                projectId: project.id,
+                title: `Health check failed: ${service.name}`,
+                description: `${service.name} health endpoint ${service.path} is currently unhealthy.`,
+                severity: 'High',
+                service: service.service,
+                actor: 'health-monitor',
+            });
+        });
+    });
     res.json({ services });
+});
+app.get('/api/monitoring/summary', (_req, res) => {
+    res.json((0, metrics_1.requestHealthSummary)());
 });
 app.get('/metrics', (_req, res) => {
     res.type('text/plain').send((0, metrics_1.renderMetrics)());
@@ -391,57 +590,6 @@ app.post('/jobs', (0, rbac_1.requireRole)(['admin']), (req, res) => {
     });
     res.json({ status: 'queued', job });
 });
-app.get('/analytics', (0, rbac_1.requireRole)(['admin', 'manager']), (_req, res) => {
-    res.json({ snapshot: (0, analytics_1.snapshot)() });
-});
-app.get('/api/analytics', (_req, res) => {
-    const store = (0, store_1.readStore)();
-    const completedTasks = store.tasks.filter((task) => task.status === 'DONE').length;
-    const pendingTasks = store.tasks.length - completedTasks;
-    const days = Array.from({ length: 7 }, (_, index) => {
-        const date = new Date(Date.now() - (6 - index) * 86400000).toISOString().slice(0, 10);
-        const dayStart = new Date(`${date}T00:00:00.000Z`).getTime();
-        const dayEnd = dayStart + 86400000;
-        return {
-            date,
-            projects: store.projects.filter((project) => new Date(project.createdAt).getTime() <= dayEnd).length,
-            tasks: store.tasks.filter((task) => {
-                const created = new Date(task.createdAt).getTime();
-                return created >= dayStart && created < dayEnd;
-            }).length,
-            deployments: store.deployments.filter((deployment) => {
-                const created = new Date(deployment.startedAt).getTime();
-                return created >= dayStart && created < dayEnd;
-            }).length,
-            incidents: store.incidents.filter((incident) => {
-                const created = new Date(incident.createdAt).getTime();
-                return created >= dayStart && created < dayEnd;
-            }).length,
-        };
-    });
-    res.json({
-        cards: {
-            totalProjects: store.projects.length,
-            activeProjects: store.projects.filter((project) => project.status === 'Active').length,
-            openTasks: pendingTasks,
-            completedTasks,
-            deployments: store.deployments.length,
-            incidents: store.incidents.length,
-        },
-        series: days,
-    });
-});
-app.post('/ai/chat', (req, res) => {
-    (0, analytics_1.bump)('chatMessages');
-    const prompt = String(req.body?.prompt || '');
-    const response = (0, chatbot_1.generateChatResponse)(prompt);
-    (0, activity_1.recordActivity)({
-        actor: req.header('x-user') || 'assistant',
-        role: (0, rbac_1.getRole)(req),
-        action: 'ai.chat',
-    });
-    res.json({ prompt, response });
-});
 if (process.env.ENABLE_SERVICE_PROXY === 'true') {
     const serviceRoutes = {
         '/auth': { target: 'http://auth-service:3001', changeOrigin: true },
@@ -453,6 +601,10 @@ if (process.env.ENABLE_SERVICE_PROXY === 'true') {
     });
 }
 (0, jobs_1.startJobWorker)(realtime.broadcast);
+runProjectHealthChecks().catch((error) => console.error('Project health check failed', error));
+setInterval(() => {
+    runProjectHealthChecks().catch((error) => console.error('Project health check failed', error));
+}, Number(process.env.PROJECT_HEALTH_CHECK_INTERVAL_MS || 30000));
 // Start the server
 server.listen(PORT, () => {
     console.log(`API Gateway is running on http://localhost:${PORT}`);

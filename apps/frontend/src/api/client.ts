@@ -1,4 +1,4 @@
-const baseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000';
+export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000';
 
 type RequestOptions = Omit<RequestInit, 'body'> & { body?: unknown };
 
@@ -8,7 +8,7 @@ const request = async <T>(path: string, options: RequestOptions = {}) => {
     headers.set('Content-Type', 'application/json');
   }
 
-  const response = await fetch(`${baseUrl}${path}`, {
+  const response = await fetch(`${apiBaseUrl}${path}`, {
     ...options,
     headers,
     body: options.body ? JSON.stringify(options.body) : undefined,

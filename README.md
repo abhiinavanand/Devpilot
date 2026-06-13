@@ -1,144 +1,196 @@
 # DevPilot AI
 
-![Build](https://img.shields.io/badge/build-passing-brightgreen)
-![License](https://img.shields.io/badge/license-MIT-blue)
-![TypeScript](https://img.shields.io/badge/typescript-5.5-blue)
-![Docker](https://img.shields.io/badge/docker-ready-blue)
+DevPilot AI is a TypeScript internship demo for project management, deployment tracking, and monitoring.
 
-DevPilot AI is a clean, project-centric platform for engineering teams to manage projects, track deployments, and monitor service health. Built with React, Express, and Docker, it combines task management, deployment tracking, and observability in one place.
+The app is intentionally project-centric:
 
-## Features
+Login -> Overview -> Projects -> Project Detail -> Tasks/Kanban/Deployments/Incidents/Monitoring -> Grafana
 
-- **Project Management**: Create projects, assign ownership, track status
-- **Task Management**: Full CRUD with Kanban boards, priorities, and assignments
-- **Deployment Tracking**: Track deployments across environments with status and version control
-- **Incident Management**: Create, investigate, and resolve incidents
-- **Service Monitoring**: Real-time health checks and integration with Grafana
-- **Analytics**: Track projects, tasks, deployments, and incidents over time
-- **Prometheus Metrics**: Built-in metrics export for observability
+## Authentication
 
-## Quick Start
-
-### With Docker (Recommended)
-
-```bash
-docker compose up
-```
-
-Visit http://localhost
-
-### Local Development
-
-```bash
-npm run dev:api      # Terminal 1: API on localhost:3000
-npm run dev          # Terminal 2: Frontend on localhost:5173
-npm run monitoring   # Terminal 3 (optional): Prometheus & Grafana
-```
-
-## Login
-
-Demo Account:
-- Email: `demo@devpilot.ai`
-- Password: `password123`
-
-## Project Workflow
-
-1. **Overview** - Workspace dashboard with real metrics
-2. **Projects** - Create and manage projects
-3. **Project Detail** - Access all project features:
-   - Overview: Summary cards
-   - Tasks: Task CRUD + assignment
-   - Kanban: Drag-and-drop board
-   - Deployments: Release tracking
-   - Incidents: Issue management
-   - Monitoring: Service health
+Authentication is localStorage-based for demo use. Register an account on `/login`, then log in with that email and password. No backend auth service is required.
 
 ## Architecture
 
+```mermaid
+flowchart LR
+  User[Engineering Team] --> Frontend[React Frontend]
+  Frontend --> Gateway[Express API Gateway]
+  Gateway --> SQLite[(SQLite Demo Database)]
+  Gateway --> Metrics[/Prometheus Metrics/]
+  Prometheus --> Gateway
+  Grafana --> Prometheus
+  Frontend --> GrafanaLink[Open Grafana Dashboard]
 ```
-Frontend (React + Vite)
-    ↓
-API Gateway (Express + SQLite)
-    ↓
-Prometheus (Metrics Collection)
-    ↓
-Grafana (Observability)
+
+## Folder Structure
+
+```text
+apps/
+  frontend/       React + Vite application
+  api-gateway/    Express + SQLite API
+services/
+  auth-service/
+  project-service/
+  analytics-service/
+  notification-service/
+packages/
+  shared-types/
+  shared-utils/
+  config/
+  logger/
+monitoring/
+  prometheus/
+  grafana/
+docs/
 ```
 
-- **Frontend**: React SPA with TypeScript, Tailwind CSS
-- **API**: Express.js with embedded SQLite database
-- **Monitoring**: Prometheus + Grafana stack
-- **Containerization**: Docker Compose for one-command startup
+The frontend contains only the primary product routes:
 
-## API Endpoints
+- `/login`
+- `/`
+- `/projects`
+- `/projects/:id`
 
-### Projects
-- `GET /api/projects` - List all projects
-- `POST /api/projects` - Create project
-- `GET /api/projects/:id/summary` - Get project details
+Tasks, Kanban, deployments, incidents, and monitoring are accessed inside `/projects/:id`.
 
-### Tasks
-- `POST /api/tasks` - Create task
-- `PATCH /api/tasks/:id` - Update task
-- `DELETE /api/tasks/:id` - Delete task
+## Local Development
 
-### Deployments
-- `POST /api/deployments` - Record deployment
+Install dependencies in the two runnable apps:
 
-### Incidents
-- `POST /api/incidents` - Create incident
-- `PATCH /api/incidents/:id` - Update incident
+```bash
+npm --prefix apps/api-gateway install
+npm --prefix apps/frontend install
+```
 
-### Monitoring
-- `GET /metrics` - Prometheus metrics
-- `GET /api/service-health` - Service status
+Clear local data:
 
-## Database
+```bash
+npm run seed
+```
 
-- **Type**: SQLite (embedded)
-- **Seeding**: `npm run seed` to populate sample data
-- **Location**: `.data/store.db`
+Start the API:
 
-Data includes: Projects, Tasks, Deployments, Incidents
+```bash
+npm run dev:api
+```
+
+Start the frontend:
+
+```bash
+npm run dev
+```
+
+Open:
+
+- Frontend: `http://localhost:5173`
+- API Gateway: `http://localhost:3000`
+- Metrics: `http://localhost:3000/metrics`
+
+## Docker
+
+Run the complete platform:
+
+```bash
+docker compose up --build
+```
+
+Services:
+
+- Frontend: `http://localhost:5173`
+- API Gateway: `http://localhost:3000`
+- Prometheus: `http://localhost:9090`
+- Grafana: `http://localhost:3001`
+
+Grafana login:
+
+- User: `admin`
+- Password: `admin`
 
 ## Monitoring
 
-### Prometheus
-- URL: http://localhost:9090
-- Scrapes `/metrics` endpoint every 10 seconds
+Prometheus scrapes the API gateway `/metrics` endpoint.
 
-### Grafana
-- URL: http://localhost:3001
-- Credentials: admin / admin
-- Metrics source: Prometheus
+Tracked application metrics:
 
-## Documentation
+- `http_requests_total`
+- `http_request_duration_seconds`
+- `projects_created_total`
+- `tasks_created_total`
+- `deployments_created_total`
+- `incidents_created_total`
+- `active_projects_total`
 
-- [Setup Guide](./SETUP.md) - Detailed setup and troubleshooting
-- [Contributing](./CONTRIBUTING.md) - Development guidelines
-- [License](./LICENSE) - MIT
+Grafana is provisioned automatically from `monitoring/grafana`.
 
-## Tech Stack
+The React monitoring page intentionally does not recreate Grafana charts. It shows service health and links to Grafana for detailed observability.
 
-- **Frontend**: React 18, TypeScript, Tailwind CSS, Vite
-- **Backend**: Node.js, Express.js, SQLite
-- **Observability**: Prometheus, Grafana
-- **DevOps**: Docker, Docker Compose
+Project monitoring flow:
 
-## Key Design Decisions
+```text
+Project app URL -> DevPilot health checker -> /metrics -> Prometheus -> Grafana
+```
 
-- **Project-centric**: All features organized around projects
-- **Real data only**: No fake metrics or placeholders
-- **Database-backed**: Metrics derived from actual records
-- **Simple auth**: localStorage-based (no backend setup)
-- **Single Page App**: Client-side routing
-- **Embedded DB**: Zero external dependencies
-- **Observable**: Native Prometheus integration
+When a project has an App URL, DevPilot checks it every 30 seconds and records HTTP status code, response time, health status, and uptime history. These are exposed as Prometheus metrics:
 
-## Getting Help
+- `project_health_status`
+- `project_response_time_ms`
+- `project_http_status_code`
+- `project_uptime_percent`
+- `project_health_checks_count`
 
-Check [SETUP.md](./SETUP.md) for troubleshooting and detailed documentation.
+The project Monitoring tab links to the provisioned Grafana dashboard `Project Observability`.
 
-## License
+If the Grafana button refuses to connect, start the monitoring stack:
 
-MIT - See [LICENSE](./LICENSE)
+```bash
+docker compose up --build prometheus grafana api-gateway
+```
+
+Grafana runs at `http://localhost:3001`.
+
+## Deployment Tracking
+
+Each project has a Deployments tab for release records from manual entries or CI/CD tools.
+
+CI/CD systems can post deployment events to:
+
+```text
+POST /api/projects/:projectId/deployments/webhook
+```
+
+Example payload:
+
+```json
+{
+  "provider": "GitHub Actions",
+  "service": "payment-service",
+  "version": "v1.4.2",
+  "environment": "production",
+  "status": "succeeded",
+  "deploymentUrl": "https://github.com/acme/app/actions/runs/123",
+  "commitSha": "abc123def456",
+  "branch": "main",
+  "triggeredBy": "release-bot",
+  "externalId": "123"
+}
+```
+
+Supported providers are `Vercel`, `GitHub Actions`, `Railway`, `Render`, `Manual`, and `Other`. Deployment records are project-scoped release history; detailed latency and request metrics stay in Grafana.
+
+## Build
+
+```bash
+npm run build
+```
+
+## Screenshots
+
+Add demo screenshots here before presenting:
+
+- Login
+- Overview
+- Projects
+- Project Detail Kanban
+- Monitoring
+- Grafana

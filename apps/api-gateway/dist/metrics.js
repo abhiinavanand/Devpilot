@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.renderMetrics = exports.prometheusMiddleware = exports.observeIncidentCreated = exports.observeDeploymentCreated = exports.observeTaskCreated = exports.observeProjectCreated = void 0;
+exports.requestHealthSummary = exports.renderMetrics = exports.prometheusMiddleware = exports.observeIncidentCreated = exports.observeDeploymentCreated = exports.observeTaskCreated = exports.observeProjectCreated = void 0;
 const store_1 = require("./store");
 const requests = [];
 const counters = {
@@ -50,9 +50,13 @@ exports.prometheusMiddleware = prometheusMiddleware;
 const renderMetrics = () => {
     const store = (0, store_1.readStore)();
     const grouped = new Map();
+    const healthChecksByProject = new Map();
     requests.forEach((request) => {
         const key = [request.method, request.route, request.status].join('|');
         grouped.set(key, [...(grouped.get(key) || []), request]);
+    });
+    store.projectHealthChecks.forEach((check) => {
+        healthChecksByProject.set(check.projectId, [...(healthChecksByProject.get(check.projectId) || []), check]);
     });
     const lines = [
         '# HELP http_requests_total Total HTTP requests.',
@@ -75,6 +79,49 @@ const renderMetrics = () => {
         lines.push(`http_request_duration_seconds_count{method="${escapeLabel(method)}",route="${escapeLabel(route)}",status="${status}"} ${items.length}`);
     });
     lines.push('# HELP projects_created_total Total projects created through the API.', '# TYPE projects_created_total counter', `projects_created_total ${counters.projectsCreated}`, '# HELP tasks_created_total Total tasks created through the API.', '# TYPE tasks_created_total counter', `tasks_created_total ${counters.tasksCreated}`, '# HELP active_projects_total Active projects currently stored.', '# TYPE active_projects_total gauge', `active_projects_total ${store.projects.filter((project) => project.status === 'Active').length}`, '# HELP deployments_created_total Total deployments created through the API.', '# TYPE deployments_created_total counter', `deployments_created_total ${counters.deploymentsCreated}`, '# HELP incidents_created_total Total incidents created through the API.', '# TYPE incidents_created_total counter', `incidents_created_total ${counters.incidentsCreated}`);
+    lines.push('# HELP project_health_status Current project health status, 1 healthy, 0.5 warning, 0 down.', '# TYPE project_health_status gauge', '# HELP project_response_time_ms Latest project app response time in milliseconds.', '# TYPE project_response_time_ms gauge', '# HELP project_http_status_code Latest project app HTTP status code.', '# TYPE project_http_status_code gauge', '# HELP project_uptime_percent Project app uptime percentage across recent health checks.', '# TYPE project_uptime_percent gauge', '# HELP project_health_checks_count Recent project health checks recorded by status.', '# TYPE project_health_checks_count gauge');
+    store.projects.forEach((project) => {
+        const checks = healthChecksByProject.get(project.id) || [];
+        const latest = checks[0];
+        if (!latest)
+            return;
+        const labels = `project_id="${escapeLabel(project.id)}",project_name="${escapeLabel(project.name)}",service="${escapeLabel(project.serviceName)}",app_url="${escapeLabel(project.appUrl)}"`;
+        const healthyChecks = checks.filter((check) => check.status === 'healthy').length;
+        const uptime = checks.length ? Number(((healthyChecks / checks.length) * 100).toFixed(2)) : 0;
+        const healthValue = latest.status === 'healthy' ? 1 : latest.status === 'warning' ? 0.5 : 0;
+        lines.push(`project_health_status{${labels},status="${latest.status}"} ${healthValue}`);
+        lines.push(`project_response_time_ms{${labels}} ${latest.responseTimeMs}`);
+        lines.push(`project_http_status_code{${labels}} ${latest.statusCode}`);
+        lines.push(`project_uptime_percent{${labels}} ${uptime}`);
+        ['healthy', 'warning', 'down'].forEach((status) => {
+            lines.push(`project_health_checks_count{${labels},status="${status}"} ${checks.filter((check) => check.status === status).length}`);
+        });
+    });
     return `${lines.join('\n')}\n`;
 };
 exports.renderMetrics = renderMetrics;
+const requestHealthSummary = () => {
+    const recent = requests.slice(-200);
+    const total = recent.length;
+    const statusCodes = recent.reduce((counts, request) => {
+        const code = String(request.status);
+        counts[code] = (counts[code] || 0) + 1;
+        return counts;
+    }, {});
+    const errorCount = recent.filter((request) => request.status >= 500).length;
+    const warningCount = recent.filter((request) => request.status >= 400 && request.status < 500).length;
+    const avgResponseTimeMs = total
+        ? Math.round((recent.reduce((sum, request) => sum + request.durationSeconds, 0) / total) * 1000)
+        : null;
+    const uptimePercent = total ? Number((((total - errorCount) / total) * 100).toFixed(2)) : null;
+    const status = errorCount > 0 ? 'Down' : warningCount > 0 || (avgResponseTimeMs !== null && avgResponseTimeMs > 1000) ? 'Warning' : 'Healthy';
+    return {
+        status,
+        totalRequests: total,
+        uptimePercent,
+        avgResponseTimeMs,
+        statusCodes,
+        lastUpdatedAt: new Date().toISOString(),
+    };
+};
+exports.requestHealthSummary = requestHealthSummary;

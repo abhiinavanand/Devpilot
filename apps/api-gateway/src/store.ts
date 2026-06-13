@@ -14,6 +14,9 @@ export type Project = {
   name: string;
   description: string;
   owner: string;
+  serviceName: string;
+  appUrl: string;
+  deploymentWebhookToken: string;
   status: 'Active' | 'Paused' | 'Completed';
   createdAt: string;
   updatedAt: string;
@@ -38,13 +41,18 @@ export type Task = {
 export type Deployment = {
   id: string;
   projectId: string;
+  provider: 'Manual' | 'Vercel' | 'GitHub Actions' | 'Railway' | 'Render' | 'Other';
   service: string;
   environment: 'staging' | 'production';
   status: 'Queued' | 'Running' | 'Succeeded' | 'Failed' | 'Rolled Back';
   version: string;
+  deploymentUrl: string;
+  commitSha: string;
+  branch: string;
+  triggeredBy: string;
+  externalId: string;
   startedAt: string;
   durationMinutes: number;
-  successRate: number;
 };
 
 export type Slo = {
@@ -131,6 +139,17 @@ export type Incident = {
   summary: string;
 };
 
+export type ProjectHealthCheck = {
+  id: string;
+  projectId: string;
+  appUrl: string;
+  status: 'healthy' | 'warning' | 'down';
+  statusCode: number;
+  responseTimeMs: number;
+  checkedAt: string;
+  error: string;
+};
+
 export type DoraMetrics = {
   deploymentFrequency: number;
   leadTimeHours: number;
@@ -157,13 +176,13 @@ export type StoreState = {
   kubernetesPods: KubernetesPod[];
   kubernetesDeployments: KubernetesDeployment[];
   incidents: Incident[];
+  projectHealthChecks: ProjectHealthCheck[];
 };
 
 const dataDir = path.resolve(__dirname, '..', '.data');
 const dbPath = path.join(dataDir, 'devpilot.sqlite');
 
 const now = () => new Date().toISOString();
-const daysAgo = (days: number) => new Date(Date.now() - days * 86400000).toISOString();
 const json = (value: unknown) => JSON.stringify(value);
 const DEFAULT_PROJECT_NAME = 'DevPilot Platform';
 
@@ -210,6 +229,9 @@ db.exec(`
     name TEXT NOT NULL,
     description TEXT NOT NULL,
     owner TEXT NOT NULL,
+    service_name TEXT NOT NULL DEFAULT '',
+    app_url TEXT NOT NULL DEFAULT '',
+    deployment_webhook_token TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -234,10 +256,16 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS deployments (
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL DEFAULT '',
+    provider TEXT NOT NULL DEFAULT 'Manual',
     service TEXT NOT NULL,
     environment TEXT NOT NULL,
     status TEXT NOT NULL,
     version TEXT NOT NULL,
+    deployment_url TEXT NOT NULL DEFAULT '',
+    commit_sha TEXT NOT NULL DEFAULT '',
+    branch TEXT NOT NULL DEFAULT '',
+    triggered_by TEXT NOT NULL DEFAULT '',
+    external_id TEXT NOT NULL DEFAULT '',
     started_at TEXT NOT NULL,
     duration_minutes INTEGER NOT NULL,
     success_rate INTEGER NOT NULL
@@ -326,7 +354,36 @@ db.exec(`
     resolved_at TEXT,
     summary TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS project_health_checks (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    app_url TEXT NOT NULL,
+    status TEXT NOT NULL,
+    status_code INTEGER NOT NULL,
+    response_time_ms INTEGER NOT NULL,
+    checked_at TEXT NOT NULL,
+    error TEXT NOT NULL DEFAULT ''
+  );
 `);
+
+try {
+  run(`ALTER TABLE projects ADD COLUMN service_name TEXT NOT NULL DEFAULT ''`);
+} catch {
+  // Column already exists in upgraded databases.
+}
+
+try {
+  run(`ALTER TABLE projects ADD COLUMN app_url TEXT NOT NULL DEFAULT ''`);
+} catch {
+  // Column already exists in upgraded databases.
+}
+
+try {
+  run(`ALTER TABLE projects ADD COLUMN deployment_webhook_token TEXT NOT NULL DEFAULT ''`);
+} catch {
+  // Column already exists in upgraded databases.
+}
 
 try {
   run(`ALTER TABLE tasks ADD COLUMN project_id TEXT NOT NULL DEFAULT ''`);
@@ -339,6 +396,21 @@ try {
 } catch {
   // Column already exists in upgraded databases.
 }
+
+[
+  `ALTER TABLE deployments ADD COLUMN provider TEXT NOT NULL DEFAULT 'Manual'`,
+  `ALTER TABLE deployments ADD COLUMN deployment_url TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE deployments ADD COLUMN commit_sha TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE deployments ADD COLUMN branch TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE deployments ADD COLUMN triggered_by TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE deployments ADD COLUMN external_id TEXT NOT NULL DEFAULT ''`,
+].forEach((statement) => {
+  try {
+    run(statement);
+  } catch {
+    // Column already exists in upgraded databases.
+  }
+});
 
 try {
   run(`ALTER TABLE incidents ADD COLUMN project_id TEXT NOT NULL DEFAULT ''`);
@@ -359,11 +431,15 @@ function ensureDefaultProject() {
   const timestamp = now();
   const id = uuid();
   run(
-    `INSERT INTO projects VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO projects (id, name, description, owner, service_name, app_url, deployment_webhook_token, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     DEFAULT_PROJECT_NAME,
     'Core SaaS workspace for project management and DevOps observability.',
     'Platform Team',
+    'api-gateway',
+    'http://localhost:3000/health',
+    uuid(),
     'Active',
     timestamp,
     timestamp,
@@ -378,241 +454,6 @@ function backfillTasksToDefaultProject() {
   run(`UPDATE incidents SET project_id = ? WHERE project_id IS NULL OR project_id = ''`, defaultProjectId);
   return defaultProjectId;
 }
-
-function rowCount(table: string) {
-  return get<{ count: number }>(`SELECT COUNT(*) as count FROM ${table}`)?.count ?? 0;
-}
-
-function createSeedProject(name: string, description: string, owner: string, status: Project['status'] = 'Active') {
-  const timestamp = now();
-  const id = uuid();
-  run(`INSERT INTO projects VALUES (?, ?, ?, ?, ?, ?, ?)`, id, name, description, owner, status, timestamp, timestamp);
-  return id;
-}
-
-function createSeedTask(
-  projectId: string,
-  title: string,
-  description: string,
-  type: Task['type'],
-  status: TaskStatus,
-  priority: Priority,
-  assignee: string,
-  points: number,
-  labels: string[],
-) {
-  const timestamp = now();
-  run(
-    `INSERT INTO tasks (id, project_id, title, description, type, status, priority, assignee, points, due, labels, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    uuid(),
-    projectId,
-    title,
-    description,
-    type,
-    status,
-    priority,
-    assignee,
-    points,
-    new Date(Date.now() + points * 86400000).toISOString().slice(0, 10),
-    json(labels),
-    timestamp,
-    timestamp,
-  );
-}
-
-function createSeedDeployment(
-  projectId: string,
-  service: string,
-  environment: Deployment['environment'],
-  status: Deployment['status'],
-  version: string,
-  durationMinutes: number,
-  successRate: number,
-  daysBack: number,
-) {
-  run(
-    `INSERT INTO deployments (id, project_id, service, environment, status, version, started_at, duration_minutes, success_rate)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    uuid(),
-    projectId,
-    service,
-    environment,
-    status,
-    version,
-    daysAgo(daysBack),
-    durationMinutes,
-    successRate,
-  );
-}
-
-export const seedDatabase = () => {
-  if (rowCount('projects') === 0) {
-    createSeedProject(DEFAULT_PROJECT_NAME, 'Core SaaS workspace for project management and DevOps observability.', 'Platform Team');
-    createSeedProject('Mobile Experience', 'Customer-facing mobile release train and quality work.', 'Experience Team');
-    createSeedProject('Payments Reliability', 'Checkout, billing, and finance operations reliability.', 'Revenue Engineering');
-    createSeedProject('Analytics Modernization', 'Event pipeline, dashboards, and decision intelligence.', 'Data Platform');
-    createSeedProject('Security Hardening', 'Identity, permissions, and compliance readiness.', 'Security Team');
-  }
-
-  const projectIds = all<{ id: string }>('SELECT id FROM projects ORDER BY created_at ASC').map((project) => project.id);
-  const defaultProjectId = projectIds[0] || ensureDefaultProject();
-
-  if (rowCount('tasks') === 0) {
-    const titles = [
-      ['Auth latency spike', 'Trace p95 auth latency and deploy cache fix.', 'Incident', 'TODO', 'Critical', 'SRE', 5, ['auth', 'latency']],
-      ['Preview environment automation', 'Provision ephemeral review apps from pull requests.', 'Feature', 'IN_PROGRESS', 'High', 'Platform', 8, ['ci-cd']],
-      ['Edge caching rollout', 'Move static assets behind CDN cache policy.', 'Task', 'IN_PROGRESS', 'Medium', 'Infra', 3, ['performance']],
-      ['Release readiness review', 'Validate rollout checklist and owner signoffs.', 'Task', 'REVIEW', 'Medium', 'Ava Chen', 2, ['release']],
-      ['Command palette UX', 'Ship keyboard-first navigation for operators.', 'Feature', 'DONE', 'Low', 'Design', 2, ['frontend']],
-      ['AI assistant prompt guardrails', 'Add scoped incident recommendations and safer fallback copy.', 'Task', 'DONE', 'Medium', 'AI', 5, ['ai']],
-    ] as const;
-
-    titles.forEach((task, index) =>
-  createSeedTask(
-    projectIds[index % projectIds.length] || defaultProjectId,
-    task[0],
-    task[1],
-    task[2],
-    task[3],
-    task[4],
-    task[5],
-    task[6],
-    [...task[7]]
-
-  )
-);
-    const assignees = ['Ava Chen', 'Noah Patel', 'Mia Torres', 'Ishan Rao', 'Sofia Kim', 'Liam Brooks'];
-    const statuses: TaskStatus[] = ['TODO', 'IN_PROGRESS', 'REVIEW', 'DONE'];
-    const priorities: Priority[] = ['Low', 'Medium', 'High', 'Critical'];
-    for (let index = 0; index < 44; index += 1) {
-      createSeedTask(
-        projectIds[index % projectIds.length] || defaultProjectId,
-        `Demo work item ${index + 1}`,
-        `Seeded delivery task ${index + 1} for internship demo data.`,
-        index % 7 === 0 ? 'Bug' : 'Task',
-        statuses[index % statuses.length],
-        priorities[index % priorities.length],
-        assignees[index % assignees.length],
-        (index % 8) + 1,
-        ['demo', index % 2 === 0 ? 'frontend' : 'backend'],
-      );
-    }
-  }
-
-  backfillTasksToDefaultProject();
-
-  if (rowCount('deployments') === 0) {
-    createSeedDeployment(projectIds[0] || defaultProjectId, 'api-gateway', 'production', 'Succeeded', 'v1.8.4', 14, 99, 1);
-    createSeedDeployment(projectIds[1] || defaultProjectId, 'auth-service', 'production', 'Running', 'v1.5.2', 7, 97, 0.2);
-    createSeedDeployment(projectIds[2] || defaultProjectId, 'analytics-service', 'staging', 'Succeeded', 'v2.1.0-rc.3', 11, 100, 2);
-    createSeedDeployment(projectIds[3] || defaultProjectId, 'notification-service', 'production', 'Rolled Back', 'v1.3.9', 18, 72, 3);
-    createSeedDeployment(projectIds[4] || defaultProjectId, 'project-service', 'production', 'Succeeded', 'v1.9.1', 9, 98, 5);
-  }
-
-  if (rowCount('slos') === 0) {
-    run(`INSERT INTO slos VALUES (?, ?, ?, ?, ?, ?)`, uuid(), 'api-gateway', '99.9% request availability', 99.9, 99.96, 82);
-    run(`INSERT INTO slos VALUES (?, ?, ?, ?, ?, ?)`, uuid(), 'auth-service', 'p95 login under 350ms', 99.5, 99.1, 31);
-    run(`INSERT INTO slos VALUES (?, ?, ?, ?, ?, ?)`, uuid(), 'project-service', '99.5% write availability', 99.5, 99.72, 64);
-  }
-
-  seedGithubSnapshot();
-  seedKubernetesSnapshot();
-  seedIncidents();
-};
-
-export const seedGithubSnapshot = () => {
-  if (rowCount('github_repositories') > 0) return;
-
-  const repoId = uuid();
-  run(
-    `INSERT INTO github_repositories VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    repoId,
-    'devpilot-labs',
-    'devpilot-ai',
-    'devpilot-labs/devpilot-ai',
-    'main',
-    184,
-    7,
-    now(),
-  );
-
-  [
-    ['9e8a7d1', 'feat: add release health dashboard', 'Ava Chen', daysAgo(0.6)],
-    ['5bb4c20', 'fix: reduce auth token validation latency', 'Noah Patel', daysAgo(1.2)],
-    ['44ad91f', 'chore: tune prometheus scrape intervals', 'Mia Torres', daysAgo(2.4)],
-    ['1cab8ee', 'feat: incident analysis recommendations', 'Ishan Rao', daysAgo(4.8)],
-  ].forEach(([sha, message, author, committedAt]) => {
-    run(`INSERT OR REPLACE INTO github_commits VALUES (?, ?, ?, ?, ?, ?)`, sha, repoId, message, author, committedAt, `https://github.com/devpilot-labs/devpilot-ai/commit/${sha}`);
-  });
-
-  [
-    ['101', 101, 'Add Kubernetes pod health panel', 'merged', 'Ava Chen', daysAgo(3), daysAgo(2.7)],
-    ['102', 102, 'Improve AI incident summary prompt', 'open', 'Ishan Rao', daysAgo(1.4), null],
-    ['103', 103, 'Fix gateway timeout retry policy', 'merged', 'Noah Patel', daysAgo(6), daysAgo(5.6)],
-  ].forEach(([id, number, title, state, author, createdAt, mergedAt]) => {
-    run(`INSERT OR REPLACE INTO github_pull_requests VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, repoId, number, title, state, author, createdAt, mergedAt, `https://github.com/devpilot-labs/devpilot-ai/pull/${number}`);
-  });
-};
-
-export const seedKubernetesSnapshot = () => {
-  if (rowCount('kubernetes_nodes') > 0) return;
-
-  [
-    ['ip-10-0-1-21', 'Ready', 8, 32, 63, 71],
-    ['ip-10-0-2-34', 'Ready', 8, 32, 58, 66],
-    ['ip-10-0-3-55', 'Ready', 16, 64, 74, 79],
-  ].forEach(([name, status, cpuCores, memoryGi, cpuUsage, memoryUsage]) => {
-    run(`INSERT INTO kubernetes_nodes VALUES (?, ?, ?, ?, ?, ?, ?)`, uuid(), name, status, cpuCores, memoryGi, cpuUsage, memoryUsage);
-  });
-
-  [
-    ['api-gateway-774bd8f9d6-j8q2m', 'production', 'Running', 0, 410, 512, 'ip-10-0-1-21'],
-    ['auth-service-67bc5f46f9-nd2vm', 'production', 'Running', 1, 260, 384, 'ip-10-0-2-34'],
-    ['notification-worker-6d4d5f9bc9-82hdq', 'production', 'CrashLoopBackOff', 9, 120, 256, 'ip-10-0-3-55'],
-    ['analytics-api-78c8dbb85f-2mqlg', 'staging', 'Running', 0, 350, 768, 'ip-10-0-3-55'],
-  ].forEach(([name, namespace, status, restarts, cpuMillicores, memoryMi, nodeName]) => {
-    run(`INSERT INTO kubernetes_pods VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, uuid(), name, namespace, status, restarts, cpuMillicores, memoryMi, nodeName);
-  });
-
-  [
-    ['api-gateway', 'production', 4, 4, 'ghcr.io/devpilot/api-gateway:v1.8.4'],
-    ['auth-service', 'production', 3, 3, 'ghcr.io/devpilot/auth-service:v1.5.2'],
-    ['notification-worker', 'production', 2, 1, 'ghcr.io/devpilot/notification-worker:v1.3.9'],
-    ['analytics-api', 'staging', 2, 2, 'ghcr.io/devpilot/analytics-api:v2.1.0-rc.3'],
-  ].forEach(([name, namespace, desired, available, image]) => {
-    run(`INSERT INTO kubernetes_deployments VALUES (?, ?, ?, ?, ?, ?)`, uuid(), name, namespace, desired, available, image);
-  });
-};
-
-export const seedIncidents = () => {
-  if (rowCount('incidents') > 0) return;
-
-  const projectIds = all<{ id: string }>('SELECT id FROM projects ORDER BY created_at ASC').map((project) => project.id);
-  const defaultProjectId = projectIds[0] || ensureDefaultProject();
-  [
-    [projectIds[3] || defaultProjectId, 'INC-1042', 'Notification worker crash loop', 'Queue consumer repeatedly restarts after the latest rollout.', 'High', 'Investigating', 'notification-service', daysAgo(0.35), null, 'Pod restart storm after queue consumer rollout.'],
-    [projectIds[1] || defaultProjectId, 'INC-1037', 'Auth latency above target', 'Login requests are slower than expected during token validation.', 'Critical', 'Resolved', 'auth-service', daysAgo(3.2), daysAgo(3.05), 'Token introspection cache missed after config drift.'],
-    [projectIds[2] || defaultProjectId, 'INC-1029', 'Analytics staging deploy rollback', 'Canary validation failed during analytics schema migration.', 'Medium', 'Resolved', 'analytics-service', daysAgo(5.4), daysAgo(5.1), 'Schema mismatch detected during canary validation.'],
-  ].forEach(([projectId, id, title, description, severity, status, service, createdAt, resolvedAt, summary]) => {
-    run(
-      `INSERT INTO incidents (id, project_id, title, description, severity, status, service, created_at, resolved_at, summary)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      id,
-      projectId,
-      title,
-      description,
-      severity,
-      status,
-      service,
-      createdAt,
-      resolvedAt,
-      summary,
-    );
-  });
-};
-
-// seedDatabase();  // Disabled: Start with empty database, use GET /api/tasks/seed to populate if needed
 
 const taskFromRow = (row: any): Task => ({
   id: row.id,
@@ -633,13 +474,18 @@ const taskFromRow = (row: any): Task => ({
 const deploymentFromRow = (row: any): Deployment => ({
   id: row.id,
   projectId: row.project_id,
+  provider: row.provider || 'Manual',
   service: row.service,
   environment: row.environment,
   status: row.status,
   version: row.version,
+  deploymentUrl: row.deployment_url || '',
+  commitSha: row.commit_sha || '',
+  branch: row.branch || '',
+  triggeredBy: row.triggered_by || '',
+  externalId: row.external_id || '',
   startedAt: row.started_at,
   durationMinutes: row.duration_minutes,
-  successRate: row.success_rate,
 });
 
 const sloFromRow = (row: any): Slo => ({
@@ -656,10 +502,30 @@ const projectFromRow = (row: any): Project => ({
   name: row.name,
   description: row.description,
   owner: row.owner,
+  serviceName: row.service_name || '',
+  appUrl: row.app_url || '',
+  deploymentWebhookToken: row.deployment_webhook_token || '',
   status: row.status,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
+
+const projectHealthCheckFromRow = (row: any): ProjectHealthCheck => ({
+  id: row.id,
+  projectId: row.project_id,
+  appUrl: row.app_url,
+  status: row.status,
+  statusCode: row.status_code,
+  responseTimeMs: row.response_time_ms,
+  checkedAt: row.checked_at,
+  error: row.error || '',
+});
+
+const ensureProjectWebhookTokens = () => {
+  all<{ id: string }>(`SELECT id FROM projects WHERE deployment_webhook_token IS NULL OR deployment_webhook_token = ''`).forEach((project) => {
+    run(`UPDATE projects SET deployment_webhook_token = ? WHERE id = ?`, uuid(), project.id);
+  });
+};
 
 export const readStore = (): StoreState => ({
   projects: listProjects(),
@@ -673,6 +539,7 @@ export const readStore = (): StoreState => ({
   kubernetesPods: listKubernetesPods(),
   kubernetesDeployments: listKubernetesDeployments(),
   incidents: listIncidents(),
+  projectHealthChecks: listProjectHealthChecks(),
 });
 
 export const resetStore = () => {
@@ -688,6 +555,7 @@ export const resetStore = () => {
     'kubernetes_pods',
     'kubernetes_deployments',
     'incidents',
+    'project_health_checks',
   ].forEach((table) => run(`DELETE FROM ${table}`));
   // seedDatabase();  // Disabled: Start with empty database
   return readStore();
@@ -764,7 +632,13 @@ export const updateTask = (id: string, patch: Partial<Task>) => {
 };
 
 export const listProjects = (): Project[] =>
-  all<any>('SELECT * FROM projects ORDER BY updated_at DESC').map(projectFromRow);
+  (ensureProjectWebhookTokens(), all<any>('SELECT * FROM projects ORDER BY updated_at DESC').map(projectFromRow));
+
+export const findProjectByDeploymentWebhookToken = (token: string): Project | undefined => {
+  ensureProjectWebhookTokens();
+  const project = get<any>('SELECT * FROM projects WHERE deployment_webhook_token = ?', token);
+  return project ? projectFromRow(project) : undefined;
+};
 
 export const createProject = (input: Partial<Project>) => {
   const timestamp = now();
@@ -773,17 +647,24 @@ export const createProject = (input: Partial<Project>) => {
     name: String(input.name || 'Untitled project'),
     description: String(input.description || ''),
     owner: String(input.owner || 'Platform Team'),
+    serviceName: String(input.serviceName || ''),
+    appUrl: String(input.appUrl || ''),
+    deploymentWebhookToken: String(input.deploymentWebhookToken || uuid()),
     status: input.status || 'Active',
     createdAt: timestamp,
     updatedAt: timestamp,
   };
 
   run(
-    `INSERT INTO projects VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO projects (id, name, description, owner, service_name, app_url, deployment_webhook_token, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     project.id,
     project.name,
     project.description,
     project.owner,
+    project.serviceName,
+    project.appUrl,
+    project.deploymentWebhookToken,
     project.status,
     project.createdAt,
     project.updatedAt,
@@ -803,10 +684,13 @@ export const updateProject = (id: string, patch: Partial<Project>) => {
   };
 
   run(
-    `UPDATE projects SET name = ?, description = ?, owner = ?, status = ?, updated_at = ? WHERE id = ?`,
+    `UPDATE projects SET name = ?, description = ?, owner = ?, service_name = ?, app_url = ?, deployment_webhook_token = ?, status = ?, updated_at = ? WHERE id = ?`,
     updated.name,
     updated.description,
     updated.owner,
+    updated.serviceName,
+    updated.appUrl,
+    updated.deploymentWebhookToken || uuid(),
     updated.status,
     updated.updatedAt,
     id,
@@ -827,30 +711,65 @@ export const deleteTask = (id: string) => {
 };
 
 export const createDeployment = (input: Partial<Deployment>) => {
+  const existing = input.externalId
+    ? get<any>('SELECT * FROM deployments WHERE project_id = ? AND external_id = ?', String(input.projectId || ''), String(input.externalId))
+    : undefined;
+
   const deployment: Deployment = {
-    id: uuid(),
+    id: existing?.id || uuid(),
     projectId: String(input.projectId || ensureDefaultProject()),
+    provider: input.provider || 'Manual',
     service: String(input.service || 'api-gateway'),
     environment: input.environment || 'staging',
     status: input.status || 'Queued',
     version: String(input.version || 'v0.0.1'),
+    deploymentUrl: String(input.deploymentUrl || ''),
+    commitSha: String(input.commitSha || ''),
+    branch: String(input.branch || ''),
+    triggeredBy: String(input.triggeredBy || ''),
+    externalId: String(input.externalId || ''),
     startedAt: String(input.startedAt || now()),
     durationMinutes: Number(input.durationMinutes || 0),
-    successRate: Number(input.successRate || 0),
   };
 
+  if (existing) {
+    run(
+      `UPDATE deployments SET provider = ?, service = ?, environment = ?, status = ?, version = ?, deployment_url = ?, commit_sha = ?, branch = ?, triggered_by = ?, external_id = ?, started_at = ?, duration_minutes = ? WHERE id = ?`,
+      deployment.provider,
+      deployment.service,
+      deployment.environment,
+      deployment.status,
+      deployment.version,
+      deployment.deploymentUrl,
+      deployment.commitSha,
+      deployment.branch,
+      deployment.triggeredBy,
+      deployment.externalId,
+      deployment.startedAt,
+      deployment.durationMinutes,
+      deployment.id,
+    );
+    return deployment;
+  }
+
   run(
-    `INSERT INTO deployments (id, project_id, service, environment, status, version, started_at, duration_minutes, success_rate)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO deployments (id, project_id, provider, service, environment, status, version, deployment_url, commit_sha, branch, triggered_by, external_id, started_at, duration_minutes, success_rate)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     deployment.id,
     deployment.projectId,
+    deployment.provider,
     deployment.service,
     deployment.environment,
     deployment.status,
     deployment.version,
+    deployment.deploymentUrl,
+    deployment.commitSha,
+    deployment.branch,
+    deployment.triggeredBy,
+    deployment.externalId,
     deployment.startedAt,
     deployment.durationMinutes,
-    deployment.successRate,
+    0,
   );
   return deployment;
 };
@@ -912,6 +831,41 @@ export const updateIncident = (id: string, patch: Partial<Incident>) => {
   );
   return updated;
 };
+
+export const recordProjectHealthCheck = (input: Omit<ProjectHealthCheck, 'id' | 'checkedAt'> & { checkedAt?: string }) => {
+  const check: ProjectHealthCheck = {
+    id: uuid(),
+    checkedAt: input.checkedAt || now(),
+    ...input,
+  };
+  run(
+    `INSERT INTO project_health_checks (id, project_id, app_url, status, status_code, response_time_ms, checked_at, error)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    check.id,
+    check.projectId,
+    check.appUrl,
+    check.status,
+    check.statusCode,
+    check.responseTimeMs,
+    check.checkedAt,
+    check.error,
+  );
+  run(
+    `DELETE FROM project_health_checks
+     WHERE id NOT IN (
+       SELECT id FROM project_health_checks WHERE project_id = ? ORDER BY checked_at DESC LIMIT 100
+     ) AND project_id = ?`,
+    check.projectId,
+    check.projectId,
+  );
+  return check;
+};
+
+export const listProjectHealthChecks = (projectId?: string): ProjectHealthCheck[] =>
+  (projectId
+    ? all<any>('SELECT * FROM project_health_checks WHERE project_id = ? ORDER BY checked_at DESC', projectId)
+    : all<any>('SELECT * FROM project_health_checks ORDER BY checked_at DESC')
+  ).map(projectHealthCheckFromRow);
 
 export const upsertGitHubRepository = (repo: Omit<GitHubRepository, 'id' | 'lastSyncedAt'>) => {
   const existing = get<{ id: string }>('SELECT id FROM github_repositories WHERE full_name = ?', repo.fullName);

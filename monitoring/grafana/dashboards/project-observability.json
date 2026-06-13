@@ -1,0 +1,100 @@
+{
+  "uid": "devpilot-project-observability",
+  "title": "Project Observability",
+  "schemaVersion": 40,
+  "version": 1,
+  "refresh": "10s",
+  "timezone": "browser",
+  "templating": {
+    "list": [
+      {
+        "name": "project_id",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(project_health_status, project_id)",
+        "refresh": 1,
+        "includeAll": false,
+        "multi": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Current Health",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 5 },
+      "targets": [
+        { "expr": "project_health_status{project_id=\"$project_id\"}", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "1": { "text": "Healthy", "color": "green" }, "0.5": { "text": "Warning", "color": "yellow" }, "0": { "text": "Down", "color": "red" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "yellow", "value": 0.5 }, { "color": "green", "value": 1 } ] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Project Uptime",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 5 },
+      "targets": [
+        { "expr": "project_uptime_percent{project_id=\"$project_id\"}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "decimals": 1 }, "overrides": [] }
+    },
+    {
+      "type": "stat",
+      "title": "Latest Response Time",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 5 },
+      "targets": [
+        { "expr": "project_response_time_ms{project_id=\"$project_id\"}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] }
+    },
+    {
+      "type": "stat",
+      "title": "Latest HTTP Status",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 5 },
+      "targets": [
+        { "expr": "project_http_status_code{project_id=\"$project_id\"}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Response Time Trend",
+      "gridPos": { "x": 0, "y": 5, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "project_response_time_ms{project_id=\"$project_id\"}", "legendFormat": "{{project_name}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "Health State",
+      "gridPos": { "x": 12, "y": 5, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "project_health_status{project_id=\"$project_id\"}", "legendFormat": "{{status}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP Status Code",
+      "gridPos": { "x": 0, "y": 13, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "project_http_status_code{project_id=\"$project_id\"}", "legendFormat": "{{project_name}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Uptime Trend",
+      "gridPos": { "x": 12, "y": 13, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "project_uptime_percent{project_id=\"$project_id\"}", "legendFormat": "{{project_name}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] }
+    }
+  ]
+}

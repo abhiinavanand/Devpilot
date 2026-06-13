@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.listActivity = exports.recordActivity = void 0;
+exports.clearActivity = exports.listActivity = exports.recordActivity = void 0;
 const uuid_1 = require("uuid");
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
@@ -38,3 +38,7 @@ const recordActivity = (entry) => {
 exports.recordActivity = recordActivity;
 const listActivity = () => readLogs().slice(0, 50);
 exports.listActivity = listActivity;
+const clearActivity = () => {
+    writeLogs([]);
+};
+exports.clearActivity = clearActivity;

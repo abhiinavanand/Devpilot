@@ -1,93 +1,9 @@
 [
   {
-    "id": "3b2cc503-c5f7-4a3f-8b4c-0bd33bc0b3ea",
-    "timestamp": "2026-06-12T08:34:15.013Z",
-    "actor": "seed",
-    "role": "system",
-    "action": "project.updated:demo-data-ready"
-  },
-  {
-    "id": "3ea6bcef-b957-446c-a5e8-ba94b93f00e9",
-    "timestamp": "2026-06-12T08:34:15.013Z",
-    "actor": "seed",
-    "role": "system",
-    "action": "task.created:50"
-  },
-  {
-    "id": "9795786c-068f-47bf-89b2-98177876f482",
-    "timestamp": "2026-06-12T08:34:15.013Z",
-    "actor": "seed",
-    "role": "system",
-    "action": "project.created:5"
-  },
-  {
-    "id": "36c2b4f9-3d38-4afd-a447-16910c2a7361",
-    "timestamp": "2026-06-12T05:37:30.992Z",
-    "actor": "assistant",
-    "role": "viewer",
-    "action": "ai.chat"
-  },
-  {
-    "id": "445b02b8-c63a-45a9-91fc-f93f7dfbd079",
-    "timestamp": "2026-06-12T05:37:01.669Z",
+    "id": "df41c656-1290-452c-9d81-6c0f973227bf",
+    "timestamp": "2026-06-12T16:17:58.470Z",
     "actor": "product",
     "role": "viewer",
-    "action": "project.created:ghdg"
-  },
-  {
-    "id": "3c3d895f-462e-426d-a967-22e89539b19a",
-    "timestamp": "2026-06-12T05:33:32.295Z",
-    "actor": "product",
-    "role": "viewer",
-    "action": "project.created:ballu"
-  },
-  {
-    "id": "8d583949-a52c-4fb6-b8a5-02d5887c5560",
-    "timestamp": "2026-06-12T05:32:31.304Z",
-    "actor": "assistant",
-    "role": "viewer",
-    "action": "ai.chat"
-  },
-  {
-    "id": "6e13ec13-d4c3-4450-b794-f62be348115a",
-    "timestamp": "2026-06-11T20:26:32.963Z",
-    "actor": "assistant",
-    "role": "viewer",
-    "action": "ai.chat"
-  },
-  {
-    "id": "e9e6d5e4-848e-41a2-9625-d6f60132f725",
-    "timestamp": "2026-06-11T20:23:30.244Z",
-    "actor": "product",
-    "role": "viewer",
-    "action": "task.updated:test-task"
-  },
-  {
-    "id": "f17aea18-03af-4d06-8c89-fc3a500383d7",
-    "timestamp": "2026-06-11T20:23:14.293Z",
-    "actor": "product",
-    "role": "viewer",
-    "action": "task.created:test-task"
-  },
-  {
-    "id": "db640ccc-e01a-4d12-b4a6-0f1c6a7f3298",
-    "timestamp": "2026-06-11T20:22:56.994Z",
-    "actor": "product",
-    "role": "viewer",
-    "action": "project.created:test-2"
-  },
-  {
-    "id": "4974f3fd-2d45-4fb2-bd60-8ed0a858c32d",
-    "timestamp": "2026-06-11T20:21:18.083Z",
-    "actor": "assistant",
-    "role": "viewer",
-    "action": "ai.chat"
-  },
-  {
-    "id": "dc75d323-0c76-40b7-ac00-5656f8aa9e5a",
-    "timestamp": "2026-06-11T20:20:46.428Z",
-    "actor": "product",
-    "role": "viewer",
-    "action": "project.created:test-project"
+    "action": "project.created:test"
   }
 ]

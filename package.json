@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "AI-powered DevOps Project Management SaaS platform",
   "main": "index.js",
+  "workspaces": ["apps/*", "services/*"],
   "scripts": {
     "start": "npm --prefix apps/api-gateway start",
     "dev": "npm --prefix apps/frontend run dev",

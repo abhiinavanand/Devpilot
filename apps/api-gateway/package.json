@@ -10,6 +10,12 @@
     "test": "jest"
   },
   "dependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^4.17.11",
+    "@types/multer": "^1.4.13",
+    "@types/node": "^14.14.31",
+    "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.5.10",
     "axios": "^0.21.1",
     "cors": "^2.8.5",
     "dotenv": "^8.2.0",
@@ -18,20 +24,14 @@
     "http-proxy-middleware": "^2.0.9",
     "multer": "^1.4.5-lts.1",
     "node-cache": "^5.1.2",
+    "typescript": "^5.5.4",
     "uuid": "^11.0.3",
     "ws": "^8.17.0"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.19",
-    "@types/express": "^4.17.11",
     "@types/jest": "^26.0.0",
-    "@types/multer": "^1.4.13",
-    "@types/node": "^14.14.31",
-    "@types/uuid": "^10.0.0",
-    "@types/ws": "^8.5.10",
     "jest": "^26.6.3",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.5.4"
+    "ts-node": "^10.9.2"
   },
   "engines": {
     "node": ">=14.0.0"

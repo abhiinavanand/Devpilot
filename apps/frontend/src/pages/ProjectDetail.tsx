@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import type { DragEvent } from 'react';
 import { useParams } from 'react-router-dom';
-import { Copy, ExternalLink, Plus } from 'lucide-react';
+import { Activity, Boxes, Copy, ExternalLink, FolderKanban, Gauge, GitBranch, Link2, Plus, ShieldAlert, Siren, Waypoints, type LucideIcon } from 'lucide-react';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { absoluteApiUrl } from '../api/client';
 import { workspaceApi, type Deployment, type Incident, type Priority, type Project, type ProjectHealthCheck, type Task, type TaskStatus } from '../api/workspace';
@@ -265,9 +265,17 @@ export const ProjectDetail = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1>{project.name}</h1>
-        <p className="subtle">{project.owner} · {project.status} · {project.serviceName || 'No service mapped'}</p>
+      <div className="card hero-panel hero-panel-compact">
+        <div className="hero-copy">
+          <div>
+            <h1>{project.name}</h1>
+            <p className="subtle">{project.description || 'Use this project to manage delivery, releases, incidents, and monitoring around a single service.'}</p>
+          </div>
+          <div className="hero-meta">
+            <StatusBadge value={project.status} />
+            <span className="subtle">{project.owner} · {project.serviceName || 'No service mapped yet'}</span>
+          </div>
+        </div>
       </div>
 
       <ProjectSetupPanel
@@ -284,17 +292,30 @@ export const ProjectDetail = () => {
 
       <div className="tabs">
         {tabs.map((tab) => (
-          <button key={tab} className={`tab-button ${activeTab === tab ? 'tab-button-active' : ''}`} onClick={() => setActiveTab(tab)}>{tab}</button>
+          <button key={tab} type="button" className={`tab-button ${activeTab === tab ? 'tab-button-active' : ''}`} onClick={() => setActiveTab(tab)}>{tab}</button>
         ))}
       </div>
 
       {activeTab === 'Overview' ? (
         <div className="space-y-6">
           <div className="grid">
-            <div className="card"><h3>Project Information</h3><p className="subtle">{project.description || 'No description yet.'}</p><p className="subtle">Service: {project.serviceName || 'Not mapped'}</p><p className="subtle">App URL: {project.appUrl || 'Not configured'}</p></div>
-            <div className="card"><h3>Task Summary</h3><p className="metric">{summary.openTasks}</p><p className="subtle">open · {summary.completedTasks} completed</p></div>
-            <div className="card"><h3>Deployment Summary</h3><p className="metric">{summary.deployments}</p><p className="subtle">deployment records</p></div>
-            <div className="card"><h3>Incident Summary</h3><p className="metric">{summary.openIncidents}</p><p className="subtle">open incidents</p></div>
+            <div className="card surface-card metric-card">
+              <div className="metric-card-top">
+                <div className="stack-sm">
+                  <span className="metric-kicker">Project information</span>
+                  <h3>Connection summary</h3>
+                </div>
+                <span className="metric-icon"><Link2 size={18} /></span>
+              </div>
+              <div className="stack-sm">
+                <p className="subtle">Service: {project.serviceName || 'Not mapped'}</p>
+                <p className="subtle">App URL: {project.appUrl || 'Not configured'}</p>
+                <p className="subtle">Deployment platform: {project.deploymentPlatform}</p>
+              </div>
+            </div>
+            <MetricTile label="Open Tasks" value={summary.openTasks} helper={`${summary.completedTasks} completed`} icon={FolderKanban} />
+            <MetricTile label="Deployment Records" value={summary.deployments} helper="Tracked for this project" icon={GitBranch} />
+            <MetricTile label="Open Incidents" value={summary.openIncidents} helper="Operational issues still active" icon={Siren} />
           </div>
           <ProjectHealthPanel project={project} healthChecks={healthChecks} />
         </div>
@@ -333,7 +354,7 @@ export const ProjectDetail = () => {
 
       {activeTab === 'Incidents' ? (
         <div className="space-y-6">
-          <form className="card grid gap-3 md:grid-cols-[1fr_1fr_160px_auto]" onSubmit={createIncident}>
+          <form className="card surface-card grid gap-3 md:grid-cols-[1fr_1fr_160px_auto]" onSubmit={createIncident}>
             <input className="editor min-h-0" placeholder="Incident title" value={incidentDraft.title} onChange={(event) => setIncidentDraft({ ...incidentDraft, title: event.target.value })} />
             <input className="editor min-h-0" placeholder="Service" value={incidentDraft.service} onChange={(event) => setIncidentDraft({ ...incidentDraft, service: event.target.value })} />
             <select className="editor min-h-0" value={incidentDraft.severity} onChange={(event) => setIncidentDraft({ ...incidentDraft, severity: event.target.value as Priority })}>{['Low', 'Medium', 'High', 'Critical'].map((severity) => <option key={severity}>{severity}</option>)}</select>
@@ -352,7 +373,7 @@ export const ProjectDetail = () => {
 };
 
 const TaskForm = ({ draft, setDraft, editing, onSubmit }: { draft: { title: string; description: string; assignee: string; priority: Priority; status: TaskStatus }; setDraft: (draft: { title: string; description: string; assignee: string; priority: Priority; status: TaskStatus }) => void; editing: boolean; onSubmit: (event: FormEvent) => void }) => (
-  <form className="card grid gap-3 md:grid-cols-[1fr_1fr_140px_140px_auto]" onSubmit={onSubmit}>
+  <form className="card surface-card grid gap-3 md:grid-cols-[1fr_1fr_140px_140px_auto]" onSubmit={onSubmit}>
     <input className="editor min-h-0" placeholder="Task title" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
     <input className="editor min-h-0" placeholder="Assignee" value={draft.assignee} onChange={(event) => setDraft({ ...draft, assignee: event.target.value })} />
     <select className="editor min-h-0" value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value as Priority })}>{['Low', 'Medium', 'High', 'Critical'].map((priority) => <option key={priority}>{priority}</option>)}</select>
@@ -363,16 +384,16 @@ const TaskForm = ({ draft, setDraft, editing, onSubmit }: { draft: { title: stri
 );
 
 const TaskTable = ({ tasks, onEdit, onDelete, onStatus }: { tasks: Task[]; onEdit: (task: Task) => void; onDelete: (task: Task) => void; onStatus: (task: Task, status: TaskStatus) => void }) => (
-  <div className="card overflow-x-auto">
+  <div className="card surface-card overflow-x-auto">
     <table className="data-table"><thead><tr><th>Title</th><th>Priority</th><th>Assignee</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-      {tasks.map((task) => <tr key={task.id}><td>{task.title}</td><td>{task.priority}</td><td>{task.assignee}</td><td><select value={task.status} onChange={(event) => onStatus(task, event.target.value as TaskStatus)}>{statuses.map((status) => <option key={status.id} value={status.id}>{status.title}</option>)}</select></td><td><button onClick={() => onEdit(task)}>Edit</button> <button onClick={() => onDelete(task)}>Delete</button></td></tr>)}
+      {tasks.map((task) => <tr key={task.id}><td>{task.title}</td><td>{task.priority}</td><td>{task.assignee}</td><td><select value={task.status} onChange={(event) => onStatus(task, event.target.value as TaskStatus)}>{statuses.map((status) => <option key={status.id} value={status.id}>{status.title}</option>)}</select></td><td><button className="button-secondary" type="button" onClick={() => onEdit(task)}>Edit</button> <button className="button-secondary" type="button" onClick={() => onDelete(task)}>Delete</button></td></tr>)}
       {!tasks.length ? <tr><td colSpan={5}>No tasks recorded for this project.</td></tr> : null}
     </tbody></table>
   </div>
 );
 
 const DeploymentTable = ({ deployments, project }: { deployments: Deployment[]; project: Project }) => (
-  <div className="card overflow-x-auto">
+  <div className="card surface-card overflow-x-auto">
     <table className="data-table"><thead><tr><th>Provider</th><th>Service</th><th>Version</th><th>Environment</th><th>Status</th><th>Branch</th><th>Commit</th><th>Deployed At</th><th>Link</th></tr></thead><tbody>
       {deployments.map((deployment) => (
         <tr key={deployment.id}>
@@ -384,7 +405,7 @@ const DeploymentTable = ({ deployments, project }: { deployments: Deployment[]; 
           <td>{deployment.branch || ''}</td>
           <td>{deployment.commitSha ? deployment.commitSha.slice(0, 7) : ''}</td>
           <td>{new Date(deployment.startedAt).toLocaleString()}</td>
-          <td>{resolveDeploymentLink(project, deployment) ? <a href={resolveDeploymentLink(project, deployment)} target="_blank" rel="noreferrer">Open</a> : ''}</td>
+          <td>{resolveDeploymentLink(project, deployment) ? <a className="table-link" href={resolveDeploymentLink(project, deployment)} target="_blank" rel="noreferrer">Open</a> : ''}</td>
         </tr>
       ))}
       {!deployments.length ? <tr><td colSpan={9}>No deployments recorded for this project.</td></tr> : null}
@@ -396,7 +417,7 @@ const ProjectSetupPanel = ({ project, appUrlDraft, setAppUrlDraft, deploymentPla
   const appUrlReady = Boolean(project.appUrl);
 
   return (
-    <div className="card space-y-4">
+    <div className="card surface-card space-y-4">
       <div className="topbar">
         <div>
           <h3>Project Connection</h3>
@@ -429,7 +450,7 @@ const ProjectSetupPanel = ({ project, appUrlDraft, setAppUrlDraft, deploymentPla
 };
 
 const DeploymentWebhookSetup = ({ webhookUrl, copied, onCopy, platform }: { webhookUrl: string; copied: boolean; onCopy: () => void; platform: Project['deploymentPlatform'] }) => (
-  <div className="card">
+  <div className="card surface-card">
     <div className="topbar">
       <div>
         <h3>Auto Deployment Tracking</h3>
@@ -445,7 +466,7 @@ const DeploymentWebhookSetup = ({ webhookUrl, copied, onCopy, platform }: { webh
 );
 
 const DeploymentForm = ({ draft, setDraft, onSubmit }: { draft: DeploymentDraft; setDraft: (draft: DeploymentDraft) => void; onSubmit: (event: FormEvent) => void }) => (
-  <form className="card grid gap-3 md:grid-cols-[180px_1fr_1fr_150px_150px_220px_auto]" onSubmit={onSubmit}>
+  <form className="card surface-card grid gap-3 md:grid-cols-[180px_1fr_1fr_150px_150px_220px_auto]" onSubmit={onSubmit}>
     <select className="editor min-h-0" value={draft.provider} onChange={(event) => setDraft({ ...draft, provider: event.target.value as Deployment['provider'] })}>
       {deploymentProviders.map((provider) => <option key={provider}>{provider}</option>)}
     </select>
@@ -468,7 +489,7 @@ const DeploymentForm = ({ draft, setDraft, onSubmit }: { draft: DeploymentDraft;
 );
 
 const IncidentTable = ({ incidents, onUpdate }: { incidents: Incident[]; onUpdate: (incident: Incident, status: Incident['status']) => void }) => (
-  <div className="card overflow-x-auto">
+  <div className="card surface-card overflow-x-auto">
     <table className="data-table"><thead><tr><th>Title</th><th>Description</th><th>Severity</th><th>Status</th><th>Created At</th><th>Resolved At</th><th>Actions</th></tr></thead><tbody>
       {incidents.map((incident) => (
         <tr key={incident.id}>
@@ -483,7 +504,7 @@ const IncidentTable = ({ incidents, onUpdate }: { incidents: Incident[]; onUpdat
               <select value={incident.status} onChange={(event) => onUpdate(incident, event.target.value as Incident['status'])}>
                 {['Open', 'Investigating', 'Resolved'].map((status) => <option key={status}>{status}</option>)}
               </select>
-              {incident.status !== 'Resolved' ? <button onClick={() => onUpdate(incident, 'Resolved')}>Resolve</button> : null}
+              {incident.status !== 'Resolved' ? <button className="button-secondary" type="button" onClick={() => onUpdate(incident, 'Resolved')}>Resolve</button> : null}
             </div>
           </td>
         </tr>
@@ -500,12 +521,46 @@ const formatProjectHealthStatus = (check?: ProjectHealthCheck) => {
   return 'Down';
 };
 
+const statusTone = (value: string) => {
+  const normalized = value.toLowerCase();
+  if (['healthy', 'active', 'succeeded', 'done', 'resolved', 'completed'].includes(normalized)) return 'status-healthy';
+  if (['down', 'failed', 'critical'].includes(normalized)) return 'status-down';
+  return 'status-warning';
+};
+
+const StatusBadge = ({ value }: { value: string }) => (
+  <span className={`status-badge ${statusTone(value)}`}>
+    <span className="status-badge-dot" />
+    {value}
+  </span>
+);
+
+const MetricTile = ({ label, value, helper, icon: Icon, compact = false }: { label: string; value: string | number; helper?: string; icon: LucideIcon; compact?: boolean }) => (
+  <div className={`card surface-card metric-card ${compact ? 'metric-card-compact' : ''}`}>
+    <div className="metric-card-top">
+      <div className="stack-sm">
+        <span className="metric-kicker">{compact ? 'Project metric' : 'Project overview'}</span>
+        <h3>{label}</h3>
+      </div>
+      <span className="metric-icon"><Icon size={18} /></span>
+    </div>
+    <p className={compact ? 'metric-sm' : 'metric'}>{value}</p>
+    {helper ? <p className="subtle">{helper}</p> : null}
+  </div>
+);
+
 const ProjectHealthPanel = ({ project, healthChecks }: { project: Project; healthChecks: ProjectHealthCheck[] }) => {
   const latest = healthChecks[0];
   return (
-  <div className="card">
-    <h3>Service Health</h3>
-    <div className="grid">
+  <div className="card surface-card">
+    <div className="topbar">
+      <div>
+        <h3>Service Health</h3>
+        <p className="subtle">Latest availability result for the mapped service or App URL.</p>
+      </div>
+      {latest ? <StatusBadge value={formatProjectHealthStatus(latest)} /> : null}
+    </div>
+    <div className="grid grid-dense">
       {project.appUrl ? (
         <div className="health-row">
           <span className={`health-dot ${latest?.status === 'healthy' ? 'health-dot-ok' : latest?.status === 'down' ? 'health-dot-bad' : ''}`} />
@@ -544,7 +599,7 @@ const buildSeries = (tasks: Task[], deployments: Deployment[], incidents: Incide
 
 const ProjectAnalytics = ({ tasks, deployments, incidents, summary }: { tasks: Task[]; deployments: Deployment[]; incidents: Incident[]; summary: { totalTasks: number; openTasks: number; completedTasks: number; openIncidents: number; deployments: number } }) => {
   const series = buildSeries(tasks, deployments, incidents);
-  const cards = [
+  const cards: Array<[string, number]> = [
     ['Total Tasks', summary.totalTasks],
     ['Completed Tasks', summary.completedTasks],
     ['Open Tasks', summary.openTasks],
@@ -556,7 +611,7 @@ const ProjectAnalytics = ({ tasks, deployments, incidents, summary }: { tasks: T
     <div className="space-y-6">
       <div className="grid">
         {cards.map(([label, value]) => (
-          <div className="card" key={label}><h3>{label}</h3><p className="metric">{value}</p></div>
+          <MetricTile key={label} label={label} value={value} icon={label.includes('Incident') ? ShieldAlert : label.includes('Deployment') ? GitBranch : FolderKanban} compact />
         ))}
       </div>
       <div className="section">
@@ -569,7 +624,7 @@ const ProjectAnalytics = ({ tasks, deployments, incidents, summary }: { tasks: T
 };
 
 const ProjectAreaChart = ({ title, data, dataKey }: { title: string; data: Array<Record<string, string | number>>; dataKey: string }) => (
-  <div className="card">
+  <div className="card surface-card">
     <h3>{title}</h3>
     <div className="chart-container">
       <ResponsiveContainer>
@@ -586,7 +641,7 @@ const ProjectAreaChart = ({ title, data, dataKey }: { title: string; data: Array
 );
 
 const ProjectBarChart = ({ title, data, dataKey }: { title: string; data: Array<Record<string, string | number>>; dataKey: string }) => (
-  <div className="card">
+  <div className="card surface-card">
     <h3>{title}</h3>
     <div className="chart-container">
       <ResponsiveContainer>
@@ -622,58 +677,43 @@ const ProjectMonitoring = ({ project, incidents, deployments, healthChecks }: { 
 
   return (
     <div className="space-y-6">
-      <div className="card">
-        <div className="topbar">
-          <div>
-            <h3>Grafana Monitoring</h3>
-            <p className="subtle">Open Grafana with this project selected to inspect uptime, response time, status codes, and health state from Prometheus.</p>
+      <div className="monitoring-summary">
+        <div className="card surface-card">
+          <div className="topbar">
+            <div>
+              <h3>Grafana Monitoring</h3>
+              <p className="subtle">Open Grafana with this project selected to inspect uptime, response time, status codes, and health state from Prometheus.</p>
+            </div>
+            <a className="toggle inline-flex items-center gap-2" href={projectGrafanaUrl} target="_blank" rel="noreferrer">
+              <ExternalLink size={16} /> Open Grafana
+            </a>
           </div>
-          <a className="toggle inline-flex items-center gap-2" href={projectGrafanaUrl} target="_blank" rel="noreferrer">
-            <ExternalLink size={16} /> Open Grafana
-          </a>
+          <div className="monitoring-meta">
+            <div className="mini-stat">
+              <span className="metric-kicker">Current status</span>
+              <div className="hero-meta"><StatusBadge value={currentStatus} /></div>
+            </div>
+            <div className="mini-stat">
+              <span className="metric-kicker">Mapped service</span>
+              <span className="metric-sm">{project.serviceName || 'Not mapped'}</span>
+            </div>
+            <div className="mini-stat">
+              <span className="metric-kicker">App URL</span>
+              <span className="subtle">{project.appUrl || 'Not configured'}</span>
+            </div>
+          </div>
         </div>
-      </div>
-      <div className="grid">
-        <div className="card">
-          <h3>Current Status</h3>
-          <p className="metric">{currentStatus}</p>
-          <p className="subtle">Derived from this project URL checks, open incidents, and failed deployments.</p>
-        </div>
-        <div className="card">
-          <h3>App URL</h3>
-          <p className="metric">{project.appUrl || 'Not configured'}</p>
-        </div>
-        <div className="card">
-          <h3>Service Name</h3>
-          <p className="metric">{project.serviceName || 'Not mapped'}</p>
-        </div>
-        <div className="card">
-          <h3>URL Health</h3>
-          <p className="metric">{formatProjectHealthStatus(latestHealthCheck)}</p>
-        </div>
-        <div className="card">
-          <h3>Last App Check</h3>
-          <p className="metric">{latestHealthCheck ? new Date(latestHealthCheck.checkedAt).toLocaleTimeString() : 'None'}</p>
-        </div>
-        <div className="card">
-          <h3>Project Uptime</h3>
-          <p className="metric">{uptime ? `${uptime}%` : 'No data'}</p>
-        </div>
-        <div className="card">
-          <h3>Latest Response Time</h3>
-          <p className="metric">{latestHealthCheck ? `${latestHealthCheck.responseTimeMs} ms` : 'No data'}</p>
-        </div>
-        <div className="card">
-          <h3>Latest Status Code</h3>
-          <p className="metric">{latestHealthCheck?.statusCode || 'No data'}</p>
-        </div>
-        <div className="card">
-          <h3>Open Incidents</h3>
-          <p className="metric">{openIncidents.length}</p>
+        <div className="grid grid-monitoring">
+          <MetricTile label="URL Health" value={formatProjectHealthStatus(latestHealthCheck)} helper="Based on the latest check" icon={Gauge} compact />
+          <MetricTile label="Last App Check" value={latestHealthCheck ? new Date(latestHealthCheck.checkedAt).toLocaleTimeString() : 'None'} helper="Latest completed probe" icon={Activity} compact />
+          <MetricTile label="Project Uptime" value={uptime ? `${uptime}%` : 'No data'} helper="Share of healthy checks" icon={Waypoints} compact />
+          <MetricTile label="Latest Response Time" value={latestHealthCheck ? `${latestHealthCheck.responseTimeMs} ms` : 'No data'} helper="Most recent measured latency" icon={Gauge} compact />
+          <MetricTile label="Latest Status Code" value={latestHealthCheck?.statusCode || 'No data'} helper="HTTP code from the latest probe" icon={Boxes} compact />
+          <MetricTile label="Open Incidents" value={openIncidents.length} helper="Unresolved issues attached to this project" icon={ShieldAlert} compact />
         </div>
       </div>
       <div className="section">
-        <div className="card">
+        <div className="card surface-card">
           <h3>App Health Checks</h3>
           <div className="timeline">
             {healthChecks.slice(0, 8).map((check) => (
@@ -685,7 +725,7 @@ const ProjectMonitoring = ({ project, incidents, deployments, healthChecks }: { 
             {!healthChecks.length ? <p className="subtle">No project health checks recorded yet. Add an App URL and wait for the checker to run.</p> : null}
           </div>
         </div>
-        <div className="card">
+        <div className="card surface-card">
           <h3>Status Codes</h3>
           <div className="timeline">
             {statusCodes.map(([code, count]) => (
@@ -697,7 +737,7 @@ const ProjectMonitoring = ({ project, incidents, deployments, healthChecks }: { 
             {!statusCodes.length ? <p className="subtle">No project health checks recorded yet.</p> : null}
           </div>
         </div>
-        <div className="card">
+        <div className="card surface-card">
           <h3>Open Incidents</h3>
           <div className="timeline">
             {openIncidents.slice(0, 5).map((incident) => (
@@ -709,7 +749,7 @@ const ProjectMonitoring = ({ project, incidents, deployments, healthChecks }: { 
             {!openIncidents.length ? <p className="subtle">No open incidents for this project.</p> : null}
           </div>
         </div>
-        <div className="card">
+        <div className="card surface-card">
           <h3>Recent Deployments</h3>
           <div className="timeline">
             {recentDeployments.map((deployment) => (

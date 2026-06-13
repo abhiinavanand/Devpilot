@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Edit3, ExternalLink, Plus, Trash2 } from 'lucide-react';
+import { Edit3, ExternalLink, FolderKanban, Plus, RadioTower, ShieldAlert, Trash2 } from 'lucide-react';
 import { workspaceApi, type Project } from '../api/workspace';
 
 const readStoredUser = () => {
@@ -106,26 +106,78 @@ export const Projects = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1>Projects</h1>
-        <p className="subtle">Create a project to generate its deployment webhook, then add the deployed app URL inside the project.</p>
+      <div className="card hero-panel hero-panel-compact">
+        <div className="hero-copy">
+          <div>
+            <h1>Projects</h1>
+            <p className="subtle">Create the project here, connect its public app URL, then use the generated webhook to bring deployments and monitoring into DevPilot.</p>
+          </div>
+          <div className="hero-meta">
+            <span className="status-badge status-healthy"><span className="status-badge-dot" /> Scoped to {currentUser?.email || 'your account'}</span>
+          </div>
+        </div>
       </div>
       {loading ? <p className="subtle">Loading projects...</p> : null}
       {error ? <p className="subtle">{error}</p> : null}
 
-      <form className="card grid gap-3 md:grid-cols-[1fr_1fr_1fr_160px_auto]" onSubmit={submit}>
-        <input className="editor min-h-0" placeholder="Project name" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
-        <input className="editor min-h-0" placeholder="Owner" value={draft.owner} onChange={(event) => setDraft({ ...draft, owner: event.target.value })} />
-        <input className="editor min-h-0" placeholder="Service name, e.g. analytics-service" value={draft.serviceName} onChange={(event) => setDraft({ ...draft, serviceName: event.target.value })} />
-        <select className="editor min-h-0" value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as Project['status'] })}>
-          {['Active', 'Paused', 'Completed'].map((status) => <option key={status}>{status}</option>)}
-        </select>
-        <button className="toggle inline-flex items-center justify-center gap-2" type="submit"><Plus size={16} /> {editing ? 'Save' : 'Create'}</button>
-        <input className="editor min-h-0 md:col-span-5" placeholder="App URL to monitor, optional until after webhook setup" value={draft.appUrl} onChange={(event) => setDraft({ ...draft, appUrl: event.target.value })} />
-        <textarea className="editor md:col-span-5" placeholder="Description" value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
+      <form className="card surface-card stack-md" onSubmit={submit}>
+        <div className="topbar">
+          <div>
+            <h3>{editing ? 'Edit Project' : 'Create Project'}</h3>
+            <p className="subtle">Set the basics here. Connection, deployments, incidents, and monitoring continue inside the project.</p>
+          </div>
+          <span className="badge">{editing ? 'Editing' : 'New project'}</span>
+        </div>
+        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+          <input className="editor min-h-0" placeholder="Project name" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
+          <input className="editor min-h-0" placeholder="Owner" value={draft.owner || currentUser?.name || ''} onChange={(event) => setDraft({ ...draft, owner: event.target.value })} />
+          <input className="editor min-h-0" placeholder="Service name, e.g. analytics-service" value={draft.serviceName} onChange={(event) => setDraft({ ...draft, serviceName: event.target.value })} />
+          <select className="editor min-h-0" value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as Project['status'] })}>
+            {['Active', 'Paused', 'Completed'].map((status) => <option key={status}>{status}</option>)}
+          </select>
+        </div>
+        <input className="editor min-h-0" placeholder="App URL to monitor, optional until after webhook setup" value={draft.appUrl} onChange={(event) => setDraft({ ...draft, appUrl: event.target.value })} />
+        <textarea className="editor" placeholder="Description" value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
+        <div className="hero-actions">
+          <button className="toggle inline-flex items-center justify-center gap-2" type="submit"><Plus size={16} /> {editing ? 'Save Project' : 'Create Project'}</button>
+          {editing ? <button className="button-secondary" type="button" onClick={() => { setEditing(null); setDraft(emptyProject); }}>Cancel</button> : null}
+        </div>
       </form>
 
-      <div className="card overflow-x-auto">
+      <div className="grid">
+        <div className="card surface-card metric-card metric-card-compact">
+          <div className="metric-card-top">
+            <div className="stack-sm">
+              <span className="metric-kicker">Projects</span>
+              <h3>Total visible</h3>
+            </div>
+            <span className="metric-icon"><FolderKanban size={18} /></span>
+          </div>
+          <p className="metric">{projects.length}</p>
+        </div>
+        <div className="card surface-card metric-card metric-card-compact">
+          <div className="metric-card-top">
+            <div className="stack-sm">
+              <span className="metric-kicker">Operations</span>
+              <h3>Open incidents</h3>
+            </div>
+            <span className="metric-icon"><ShieldAlert size={18} /></span>
+          </div>
+          <p className="metric">{projects.reduce((sum, project) => sum + (project.openIncidents ?? 0), 0)}</p>
+        </div>
+        <div className="card surface-card metric-card metric-card-compact">
+          <div className="metric-card-top">
+            <div className="stack-sm">
+              <span className="metric-kicker">Execution</span>
+              <h3>Open tasks</h3>
+            </div>
+            <span className="metric-icon"><RadioTower size={18} /></span>
+          </div>
+          <p className="metric">{projects.reduce((sum, project) => sum + (project.openTasks ?? 0), 0)}</p>
+        </div>
+      </div>
+
+      <div className="card surface-card overflow-x-auto">
         <table className="data-table">
           <thead>
             <tr>
@@ -148,8 +200,8 @@ export const Projects = () => {
                 <td>
                   <div className="flex gap-2">
                     <Link className="icon-button" title="Open project" to={`/projects/${project.id}`}><ExternalLink size={16} /></Link>
-                    <button className="icon-button" title="Edit project" onClick={() => startEdit(project)}><Edit3 size={16} /></button>
-                    <button className="icon-button" title="Delete project" onClick={() => deleteProject(project)}><Trash2 size={16} /></button>
+                    <button className="icon-button" type="button" title="Edit project" onClick={() => startEdit(project)}><Edit3 size={16} /></button>
+                    <button className="icon-button" type="button" title="Delete project" onClick={() => deleteProject(project)}><Trash2 size={16} /></button>
                   </div>
                 </td>
               </tr>

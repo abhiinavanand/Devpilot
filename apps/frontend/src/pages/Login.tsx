@@ -70,14 +70,22 @@ export const Login = ({ authenticated, onLogin }: LoginProps) => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4">
-      <div className="w-full max-w-md">
-        <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold mb-2">DevPilot AI</h1>
-          <p className="text-muted text-sm">Project management, deployments, and monitoring for engineering teams</p>
-        </div>
+    <div className="login-shell">
+      <div className="w-full max-w-5xl">
+        <div className="card hero-panel">
+          <div className="hero-copy">
+            <span className="badge">DevPilot AI</span>
+            <div>
+              <h1>Project delivery, deployments, incidents, and monitoring in one calm workspace.</h1>
+              <p className="subtle">Sign in with a local account to keep your own projects isolated, connect deployed apps, and route monitoring into Grafana.</p>
+            </div>
+            <div className="hero-meta">
+              <span className="status-badge status-healthy"><span className="status-badge-dot" /> Per-user project workspace</span>
+              <span className="subtle">Create an account or use one you already registered in this browser.</span>
+            </div>
+          </div>
 
-        <form className="bg-card rounded-lg border border-border shadow-sm p-6 space-y-4" onSubmit={submit}>
+          <form className="bg-card rounded-lg border border-border shadow-sm p-6 space-y-4" onSubmit={submit}>
           <div className="grid grid-cols-2 gap-2 rounded-lg bg-background p-1">
             <button className={`rounded-md px-3 py-2 text-sm font-medium ${mode === 'login' ? 'bg-card shadow-sm' : 'text-muted'}`} type="button" onClick={() => setMode('login')}>Login</button>
             <button className={`rounded-md px-3 py-2 text-sm font-medium ${mode === 'register' ? 'bg-card shadow-sm' : 'text-muted'}`} type="button" onClick={() => setMode('register')}>Register</button>
@@ -131,7 +139,8 @@ export const Login = ({ authenticated, onLogin }: LoginProps) => {
           >
             {mode === 'login' ? 'Login' : 'Create Account'}
           </button>
-        </form>
+          </form>
+        </div>
       </div>
     </div>
   );

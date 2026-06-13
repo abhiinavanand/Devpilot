@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { LogOut, Moon, SunMedium } from 'lucide-react';
 import { AppLayout } from './layout/AppLayout';
 import { Overview } from './pages/Overview';
 import { Projects } from './pages/Projects';
@@ -47,16 +48,24 @@ const App = () => {
             element={
               authenticated ? (
                 <>
-                  <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border bg-card px-6 py-5">
-                    <div>
-                      <h1 className="text-2xl font-semibold">DevPilot AI</h1>
-                      <p className="text-sm text-muted">Projects, deployments, and monitoring</p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Button variant="ghost" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
-                        {theme === 'light' ? 'Dark mode' : 'Light mode'}
-                      </Button>
-                      <Button variant="subtle" onClick={logout}>Logout</Button>
+                  <div className="shell-header">
+                    <div className="shell-header-inner">
+                      <div className="stack-sm">
+                        <div>
+                          <h1 className="text-2xl font-semibold">DevPilot AI</h1>
+                          <p className="text-sm text-muted">Project delivery and monitoring for engineering teams.</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Button variant="ghost" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
+                          {theme === 'light' ? <Moon size={16} /> : <SunMedium size={16} />}
+                          <span className="ml-2">{theme === 'light' ? 'Dark mode' : 'Light mode'}</span>
+                        </Button>
+                        <Button variant="subtle" onClick={logout}>
+                          <LogOut size={16} />
+                          <span className="ml-2">Logout</span>
+                        </Button>
+                      </div>
                     </div>
                   </div>
                   <AppLayout user={user} />

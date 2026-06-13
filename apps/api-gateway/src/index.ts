@@ -446,7 +446,7 @@ app.get('/api/projects', async (_req, res) => {
     const email = requireRequesterEmail(_req, res);
     if (!email) return;
     const store = await readStoreAsync();
-    const projects = ownedProjects(await listProjectsAsync(), email).map((project) => ({
+    const projects = ownedProjects(store.projects, email).map((project) => ({
         ...project,
         taskCount: store.tasks.filter((task) => task.projectId === project.id).length,
         openTasks: store.tasks.filter((task) => task.projectId === project.id && task.status !== 'DONE').length,

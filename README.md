@@ -151,6 +151,8 @@ VITE_OPEN_GRAFANA_URL=https://your-public-grafana-url
 
 Without that variable, the UI correctly shows `Grafana unavailable` instead of sending users to `localhost`.
 
+To use Grafana Cloud as the global monitoring destination, see [docs/grafana-cloud.md](/Users/abhinavanand/Documents/Codex/2026-06-11/files-mentioned-by-the-user-devpilot/DEVPILOT-AI-1/docs/grafana-cloud.md). DevPilot is set up to forward Prometheus metrics to Grafana Cloud through Prometheus `remote_write`.
+
 If the Grafana button refuses to connect, start the monitoring stack:
 
 ```bash

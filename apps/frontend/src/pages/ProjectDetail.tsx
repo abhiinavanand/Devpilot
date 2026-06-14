@@ -14,7 +14,12 @@ const statuses: Array<{ id: TaskStatus; title: string }> = [
   { id: 'REVIEW', title: 'Review' },
   { id: 'DONE', title: 'Done' },
 ];
-const grafanaUrl = import.meta.env.OPEN_GRAFANA_URL || import.meta.env.VITE_OPEN_GRAFANA_URL || 'http://localhost:3001';
+const defaultGrafanaUrl = (() => {
+  if (typeof window === 'undefined') return '';
+  const host = window.location.hostname.toLowerCase();
+  return host === 'localhost' || host === '127.0.0.1' ? 'http://localhost:3001' : '';
+})();
+const grafanaUrl = import.meta.env.VITE_OPEN_GRAFANA_URL || defaultGrafanaUrl;
 const deploymentProviders: Deployment['provider'][] = ['Manual', 'Vercel', 'GitHub Actions', 'Railway', 'Render', 'Other'];
 const deploymentPlatforms: Project['deploymentPlatform'][] = ['GitHub Pages', 'Vercel', 'Railway', 'Render', 'Other'];
 const normalizeUrlInput = (value: string) => {
@@ -658,7 +663,9 @@ const ProjectBarChart = ({ title, data, dataKey }: { title: string; data: Array<
 );
 
 const ProjectMonitoring = ({ project, incidents, deployments, healthChecks }: { project: Project; incidents: Incident[]; deployments: Deployment[]; healthChecks: ProjectHealthCheck[] }) => {
-  const projectGrafanaUrl = `${grafanaUrl}/d/devpilot-project-observability/project-observability?var-project_id=${encodeURIComponent(project.id)}`;
+  const projectGrafanaUrl = grafanaUrl
+    ? `${grafanaUrl}/d/devpilot-project-observability/project-observability?var-project_id=${encodeURIComponent(project.id)}`
+    : '';
   const openIncidents = incidents.filter((incident) => incident.status !== 'Resolved');
   const recentDeployments = deployments.slice(0, 5);
   const failedDeployments = deployments.filter((deployment) => ['Failed', 'Rolled Back'].includes(deployment.status));
@@ -682,11 +689,21 @@ const ProjectMonitoring = ({ project, incidents, deployments, healthChecks }: { 
           <div className="topbar">
             <div>
               <h3>Grafana Monitoring</h3>
-              <p className="subtle">Open Grafana with this project selected to inspect uptime, response time, status codes, and health state from Prometheus.</p>
+              <p className="subtle">
+                {projectGrafanaUrl
+                  ? 'Open Grafana with this project selected to inspect uptime, response time, status codes, and health state from Prometheus.'
+                  : 'Grafana is not configured for this deployed environment yet. Set VITE_OPEN_GRAFANA_URL in Vercel to enable the project dashboard link.'}
+              </p>
             </div>
-            <a className="toggle inline-flex items-center gap-2" href={projectGrafanaUrl} target="_blank" rel="noreferrer">
-              <ExternalLink size={16} /> Open Grafana
-            </a>
+            {projectGrafanaUrl ? (
+              <a className="toggle inline-flex items-center gap-2" href={projectGrafanaUrl} target="_blank" rel="noreferrer">
+                <ExternalLink size={16} /> Open Grafana
+              </a>
+            ) : (
+              <button className="toggle inline-flex items-center gap-2" type="button" disabled>
+                <ExternalLink size={16} /> Grafana unavailable
+              </button>
+            )}
           </div>
           <div className="monitoring-meta">
             <div className="mini-stat">

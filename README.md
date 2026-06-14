@@ -107,6 +107,8 @@ Grafana login:
 - User: `admin`
 - Password: `admin`
 
+Anonymous dashboard viewing is also enabled for demo use, so if Grafana is exposed publicly the project dashboard link can open without a separate login.
+
 ## Monitoring
 
 Prometheus scrapes the API gateway `/metrics` endpoint.
@@ -140,6 +142,14 @@ When a project has an App URL, DevPilot checks it every 30 seconds and records H
 - `project_health_checks_count`
 
 The project Monitoring tab links to the provisioned Grafana dashboard `Project Observability`.
+
+For deployed frontend environments such as Vercel, set a public Grafana URL with:
+
+```bash
+VITE_OPEN_GRAFANA_URL=https://your-public-grafana-url
+```
+
+Without that variable, the UI correctly shows `Grafana unavailable` instead of sending users to `localhost`.
 
 If the Grafana button refuses to connect, start the monitoring stack:
 

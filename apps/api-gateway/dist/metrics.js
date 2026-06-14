@@ -47,8 +47,8 @@ const prometheusMiddleware = (req, res, next) => {
     next();
 };
 exports.prometheusMiddleware = prometheusMiddleware;
-const renderMetrics = () => {
-    const store = (0, store_1.readStore)();
+const renderMetrics = async () => {
+    const store = await (0, store_1.readStoreAsync)();
     const grouped = new Map();
     const healthChecksByProject = new Map();
     requests.forEach((request) => {

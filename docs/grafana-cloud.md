@@ -93,3 +93,5 @@ That means the dashboard link works with Grafana Cloud as long as:
 
 - Prometheus metrics are real DevPilot metrics; no fake monitoring values are generated.
 - This setup makes Grafana globally accessible without depending on localhost or a tunnel.
+- The Vercel deployment also supports direct Grafana Cloud publishing from the API gateway plus a production cron at `/api/cron/push-metrics`.
+- On Vercel Hobby, cron runs once per day. User activity in DevPilot can still trigger additional Grafana Cloud pushes through the API.

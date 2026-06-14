@@ -7,7 +7,11 @@ exports.upload = void 0;
 const multer_1 = __importDefault(require("multer"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
-const uploadDir = path_1.default.resolve(process.cwd(), 'uploads');
+const uploadDir = process.env.UPLOAD_DIR
+    ? path_1.default.resolve(process.env.UPLOAD_DIR)
+    : process.env.VERCEL
+        ? path_1.default.join('/tmp', 'devpilot-uploads')
+        : path_1.default.resolve(process.cwd(), 'uploads');
 fs_1.default.mkdirSync(uploadDir, { recursive: true });
 const storage = multer_1.default.diskStorage({
     destination: (_req, _file, cb) => {

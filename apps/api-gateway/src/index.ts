@@ -38,6 +38,7 @@ import {
 import type { Deployment } from './store';
 import type { Project, ProjectHealthCheck } from './store';
 import { observeDeploymentCreated, observeIncidentCreated, observeProjectCreated, observeTaskCreated, prometheusMiddleware, renderMetrics, requestHealthSummary } from './metrics';
+import { pushMetricsToGrafanaCloud } from './grafanaCloud';
 
 export const app = express();
 const PORT = process.env.PORT || 3000;
@@ -174,6 +175,15 @@ const ensureRecentProjectHealthCheck = async (project: Project, checks: ProjectH
 const runProjectHealthChecks = async () => {
     const projects = (await listProjectsAsync()).filter((project) => project.status === 'Active' && project.appUrl);
     await Promise.all(projects.map(recordProjectHealthForProject));
+};
+
+const syncGrafanaCloud = async (reason: string, options: { force?: boolean } = {}) => {
+    try {
+        return await pushMetricsToGrafanaCloud(reason, options);
+    } catch (error) {
+        console.error('Grafana Cloud push failed', reason, error);
+        return { pushed: false, reason: 'push failed' };
+    }
 };
 
 const deploymentFromWebhookPayload = (projectId: string, body: any): Partial<Deployment> => ({
@@ -474,6 +484,7 @@ app.post('/api/projects', async (req, res) => {
         role: getRole(req),
         action: `project.created:${project.name}`,
     });
+    await syncGrafanaCloud('project.created');
     realtime.broadcast({ type: 'project.created', payload: project });
     res.status(201).json({ project });
 });
@@ -499,6 +510,7 @@ app.patch('/api/projects/:id', async (req, res) => {
         role: getRole(req),
         action: `project.updated:${project.name}`,
     });
+    await syncGrafanaCloud('project.updated');
     realtime.broadcast({ type: 'project.updated', payload: project });
     res.json({ project });
 });
@@ -546,6 +558,7 @@ app.get('/api/projects/:projectId/summary', async (req, res) => {
     const incidents = store.incidents.filter((incident) => incident.projectId === project.id);
     await ensureRecentProjectHealthCheck(project, store.projectHealthChecks).catch((error) => console.error('Project health check failed', error));
     const healthChecks = (await listProjectHealthChecksAsync(project.id)).slice(0, 50);
+    await syncGrafanaCloud('project.summary');
     res.json({ project, tasks, deployments, incidents, healthChecks });
 });
 
@@ -585,6 +598,7 @@ app.post('/api/tasks', async (req, res) => {
         role: getRole(req),
         action: `task.created:${task.title}`,
     });
+    await syncGrafanaCloud('task.created');
     realtime.broadcast({ type: 'task.created', payload: task });
     res.status(201).json({ task });
 });
@@ -609,6 +623,7 @@ app.patch('/api/tasks/:id', async (req, res) => {
         role: getRole(req),
         action: req.body?.status === 'DONE' ? `task.completed:${task.title}` : req.body?.status ? `task.updated:${task.title}` : `task.updated:${task.title}`,
     });
+    await syncGrafanaCloud('task.updated');
     realtime.broadcast({ type: 'task.updated', payload: task });
     res.json({ task });
 });
@@ -663,6 +678,7 @@ app.post('/api/deployments', async (req, res) => {
         action: `deployment.added:${deployment.version}`,
     });
     await recordDeploymentFailureIncident(deployment, req.header('x-user') || deployment.triggeredBy || deployment.provider);
+    await syncGrafanaCloud('deployment.created');
     realtime.broadcast({ type: 'deployment.created', payload: deployment });
     res.status(201).json({ deployment });
 });
@@ -682,6 +698,7 @@ app.post('/api/projects/:projectId/deployments/webhook', async (req, res) => {
         action: `deployment.added:${deployment.version}`,
     });
     await recordDeploymentFailureIncident(deployment, req.header('x-user') || deployment.triggeredBy || deployment.provider);
+    await syncGrafanaCloud('deployment.webhook');
     realtime.broadcast({ type: 'deployment.created', payload: deployment });
     res.status(201).json({ deployment });
 });
@@ -720,6 +737,7 @@ const handleDeploymentWebhook = async (req: express.Request, res: express.Respon
         action: `deployment.added:${deployment.version}`,
     });
     await recordDeploymentFailureIncident(deployment, deployment.triggeredBy || deployment.provider);
+    await syncGrafanaCloud('deployment.platform-webhook');
     realtime.broadcast({ type: 'deployment.created', payload: deployment });
     res.status(201).json({ deployment });
 };
@@ -756,6 +774,7 @@ app.post('/api/incidents', async (req, res) => {
         role: getRole(req),
         action: `incident.created:${incident.title}`,
     });
+    await syncGrafanaCloud('incident.created');
     realtime.broadcast({ type: 'incident.created', payload: incident });
     res.status(201).json({ incident });
 });
@@ -879,7 +898,20 @@ app.get('/metrics', async (_req, res) => {
     if (process.env.CHECK_PROJECTS_ON_METRICS !== 'false') {
         await runProjectHealthChecks().catch((error) => console.error('Project health check failed', error));
     }
+    await syncGrafanaCloud('metrics.scrape');
     res.type('text/plain').send(await renderMetrics());
+});
+
+app.get('/api/cron/push-metrics', async (req, res) => {
+    const cronSecret = process.env.CRON_SECRET;
+    if (!cronSecret || req.header('authorization') !== `Bearer ${cronSecret}`) {
+        res.status(401).json({ error: 'Unauthorized cron invocation' });
+        return;
+    }
+
+    await runProjectHealthChecks().catch((error) => console.error('Project health check failed', error));
+    const result = await syncGrafanaCloud('vercel.cron', { force: true });
+    res.json({ ok: true, result, at: new Date().toISOString() });
 });
 
 app.get('/activity', (_req, res) => {

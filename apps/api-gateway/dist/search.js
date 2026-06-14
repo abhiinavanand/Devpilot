@@ -3,7 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.searchRecords = void 0;
 const cache_1 = require("./cache");
 const store_1 = require("./store");
-const searchRecords = (query) => {
+const searchRecords = async (query) => {
     const normalizedQuery = query.trim().toLowerCase();
     const cacheKey = `search:${normalizedQuery}`;
     const cached = cache_1.cache.get(cacheKey);
@@ -11,7 +11,7 @@ const searchRecords = (query) => {
         return cached;
     if (!normalizedQuery)
         return [];
-    const store = (0, store_1.readStore)();
+    const store = await (0, store_1.readStoreAsync)();
     const dataset = [
         ...store.tasks.map((task) => `${task.title} - ${task.status} - ${task.assignee}`),
         ...store.deployments.map((deployment) => `${deployment.service} ${deployment.version} - ${deployment.status}`),

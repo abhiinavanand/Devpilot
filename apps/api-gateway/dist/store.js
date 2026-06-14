@@ -1,18 +1,63 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.databaseInfo = exports.analyzeIncidents = exports.calculateDoraMetrics = exports.listIncidents = exports.listKubernetesDeployments = exports.listKubernetesPods = exports.listKubernetesNodes = exports.listGitHubPullRequests = exports.listGitHubCommits = exports.listGitHubRepositories = exports.replaceGitHubPullRequests = exports.replaceGitHubCommits = exports.upsertGitHubRepository = exports.listProjectHealthChecks = exports.recordProjectHealthCheck = exports.updateIncident = exports.createIncident = exports.createDeployment = exports.deleteTask = exports.deleteProject = exports.updateProject = exports.createProject = exports.findProjectByDeploymentWebhookToken = exports.listProjects = exports.updateTask = exports.createTask = exports.resetStore = exports.readStore = void 0;
+exports.databaseInfo = exports.analyzeIncidents = exports.calculateDoraMetrics = exports.listIncidentsAsync = exports.listIncidents = exports.listKubernetesDeployments = exports.listKubernetesPods = exports.listKubernetesNodes = exports.listGitHubPullRequests = exports.listGitHubCommits = exports.listGitHubRepositories = exports.replaceGitHubPullRequests = exports.replaceGitHubCommits = exports.upsertGitHubRepository = exports.listProjectHealthChecksAsync = exports.listProjectHealthChecks = exports.recordProjectHealthCheck = exports.updateIncident = exports.createIncident = exports.createDeployment = exports.deleteTask = exports.deleteProject = exports.updateProject = exports.createProject = exports.findProjectByDeploymentWebhookToken = exports.listProjectsAsync = exports.listProjects = exports.updateTask = exports.createTask = exports.resetStore = exports.readStoreAsync = exports.readStore = void 0;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const uuid_1 = require("uuid");
+const pgStore = __importStar(require("./pgStore"));
 const { DatabaseSync } = require('node:sqlite');
-const dataDir = path_1.default.resolve(__dirname, '..', '.data');
+const dataDir = process.env.DEVPILOT_DATA_DIR
+    ? path_1.default.resolve(process.env.DEVPILOT_DATA_DIR)
+    : process.env.VERCEL
+        ? path_1.default.join('/tmp', 'devpilot-ai')
+        : path_1.default.resolve(__dirname, '..', '.data');
 const dbPath = path_1.default.join(dataDir, 'devpilot.sqlite');
 const now = () => new Date().toISOString();
 const json = (value) => JSON.stringify(value);
 const DEFAULT_PROJECT_NAME = 'DevPilot Platform';
+const usePostgres = Boolean(process.env.DATABASE_URL);
+const normalizeAppUrl = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw)
+        return '';
+    return /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+};
 const normalizeStatus = (status) => {
     const value = String(status || '').trim();
     const aliases = {
@@ -54,7 +99,9 @@ db.exec(`
     name TEXT NOT NULL,
     description TEXT NOT NULL,
     owner TEXT NOT NULL,
+    owner_email TEXT NOT NULL DEFAULT '',
     service_name TEXT NOT NULL DEFAULT '',
+    deployment_platform TEXT NOT NULL DEFAULT 'Other',
     app_url TEXT NOT NULL DEFAULT '',
     deployment_webhook_token TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL,
@@ -204,6 +251,18 @@ catch {
     // Column already exists in upgraded databases.
 }
 try {
+    run(`ALTER TABLE projects ADD COLUMN owner_email TEXT NOT NULL DEFAULT ''`);
+}
+catch {
+    // Column already exists in upgraded databases.
+}
+try {
+    run(`ALTER TABLE projects ADD COLUMN deployment_platform TEXT NOT NULL DEFAULT 'Other'`);
+}
+catch {
+    // Column already exists in upgraded databases.
+}
+try {
     run(`ALTER TABLE projects ADD COLUMN deployment_webhook_token TEXT NOT NULL DEFAULT ''`);
 }
 catch {
@@ -255,7 +314,7 @@ function ensureDefaultProject() {
     const timestamp = now();
     const id = (0, uuid_1.v4)();
     run(`INSERT INTO projects (id, name, description, owner, service_name, app_url, deployment_webhook_token, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, DEFAULT_PROJECT_NAME, 'Core SaaS workspace for project management and DevOps observability.', 'Platform Team', 'api-gateway', 'http://localhost:3000/health', (0, uuid_1.v4)(), 'Active', timestamp, timestamp);
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, DEFAULT_PROJECT_NAME, 'Core SaaS workspace for project management and DevOps observability.', 'Platform Team', '', 'api-gateway', 'Other', 'http://localhost:3000/health', (0, uuid_1.v4)(), 'Active', timestamp, timestamp);
     return id;
 }
 function backfillTasksToDefaultProject() {
@@ -309,7 +368,9 @@ const projectFromRow = (row) => ({
     name: row.name,
     description: row.description,
     owner: row.owner,
+    ownerEmail: row.owner_email || '',
     serviceName: row.service_name || '',
+    deploymentPlatform: row.deployment_platform || 'Other',
     appUrl: row.app_url || '',
     deploymentWebhookToken: row.deployment_webhook_token || '',
     status: row.status,
@@ -332,6 +393,7 @@ const ensureProjectWebhookTokens = () => {
     });
 };
 const readStore = () => ({
+    ...(usePostgres ? (() => { throw new Error('Use readStoreAsync when DATABASE_URL is configured'); })() : {}),
     projects: (0, exports.listProjects)(),
     tasks: all('SELECT * FROM tasks ORDER BY updated_at DESC').map(taskFromRow),
     deployments: all('SELECT * FROM deployments ORDER BY started_at DESC').map(deploymentFromRow),
@@ -346,7 +408,11 @@ const readStore = () => ({
     projectHealthChecks: (0, exports.listProjectHealthChecks)(),
 });
 exports.readStore = readStore;
-const resetStore = () => {
+const readStoreAsync = async () => usePostgres ? pgStore.readStore() : (0, exports.readStore)();
+exports.readStoreAsync = readStoreAsync;
+const resetStore = async () => {
+    if (usePostgres)
+        return pgStore.resetStore();
     [
         'projects',
         'tasks',
@@ -366,6 +432,8 @@ const resetStore = () => {
 };
 exports.resetStore = resetStore;
 const createTask = (input) => {
+    if (usePostgres)
+        return pgStore.createTask(input);
     const timestamp = now();
     const projectId = String(input.projectId || ensureDefaultProject());
     const task = {
@@ -389,6 +457,8 @@ const createTask = (input) => {
 };
 exports.createTask = createTask;
 const updateTask = (id, patch) => {
+    if (usePostgres)
+        return pgStore.updateTask(id, patch);
     const existing = get('SELECT * FROM tasks WHERE id = ?', id);
     if (!existing)
         return undefined;
@@ -405,34 +475,44 @@ const updateTask = (id, patch) => {
     return updated;
 };
 exports.updateTask = updateTask;
-const listProjects = () => (ensureProjectWebhookTokens(), all('SELECT * FROM projects ORDER BY updated_at DESC').map(projectFromRow));
+const listProjects = () => (usePostgres ? (() => { throw new Error('Use listProjectsAsync when DATABASE_URL is configured'); })() : ensureProjectWebhookTokens(), all('SELECT * FROM projects ORDER BY updated_at DESC').map(projectFromRow));
 exports.listProjects = listProjects;
+const listProjectsAsync = async () => usePostgres ? pgStore.listProjects() : (0, exports.listProjects)();
+exports.listProjectsAsync = listProjectsAsync;
 const findProjectByDeploymentWebhookToken = (token) => {
+    if (usePostgres)
+        return pgStore.findProjectByDeploymentWebhookToken(token);
     ensureProjectWebhookTokens();
     const project = get('SELECT * FROM projects WHERE deployment_webhook_token = ?', token);
     return project ? projectFromRow(project) : undefined;
 };
 exports.findProjectByDeploymentWebhookToken = findProjectByDeploymentWebhookToken;
 const createProject = (input) => {
+    if (usePostgres)
+        return pgStore.createProject(input);
     const timestamp = now();
     const project = {
         id: (0, uuid_1.v4)(),
         name: String(input.name || 'Untitled project'),
         description: String(input.description || ''),
         owner: String(input.owner || 'Platform Team'),
+        ownerEmail: String(input.ownerEmail || ''),
         serviceName: String(input.serviceName || ''),
-        appUrl: String(input.appUrl || ''),
+        deploymentPlatform: String(input.deploymentPlatform || 'Other'),
+        appUrl: normalizeAppUrl(input.appUrl),
         deploymentWebhookToken: String(input.deploymentWebhookToken || (0, uuid_1.v4)()),
         status: input.status || 'Active',
         createdAt: timestamp,
         updatedAt: timestamp,
     };
-    run(`INSERT INTO projects (id, name, description, owner, service_name, app_url, deployment_webhook_token, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, project.id, project.name, project.description, project.owner, project.serviceName, project.appUrl, project.deploymentWebhookToken, project.status, project.createdAt, project.updatedAt);
+    run(`INSERT INTO projects (id, name, description, owner, owner_email, service_name, deployment_platform, app_url, deployment_webhook_token, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, project.id, project.name, project.description, project.owner, project.ownerEmail, project.serviceName, project.deploymentPlatform, project.appUrl, project.deploymentWebhookToken, project.status, project.createdAt, project.updatedAt);
     return project;
 };
 exports.createProject = createProject;
 const updateProject = (id, patch) => {
+    if (usePostgres)
+        return pgStore.updateProject(id, patch);
     const existing = get('SELECT * FROM projects WHERE id = ?', id);
     if (!existing)
         return undefined;
@@ -442,11 +522,14 @@ const updateProject = (id, patch) => {
         id,
         updatedAt: now(),
     };
-    run(`UPDATE projects SET name = ?, description = ?, owner = ?, service_name = ?, app_url = ?, deployment_webhook_token = ?, status = ?, updated_at = ? WHERE id = ?`, updated.name, updated.description, updated.owner, updated.serviceName, updated.appUrl, updated.deploymentWebhookToken || (0, uuid_1.v4)(), updated.status, updated.updatedAt, id);
+    updated.appUrl = normalizeAppUrl(updated.appUrl);
+    run(`UPDATE projects SET name = ?, description = ?, owner = ?, owner_email = ?, service_name = ?, deployment_platform = ?, app_url = ?, deployment_webhook_token = ?, status = ?, updated_at = ? WHERE id = ?`, updated.name, updated.description, updated.owner, updated.ownerEmail, updated.serviceName, updated.deploymentPlatform, updated.appUrl, updated.deploymentWebhookToken || (0, uuid_1.v4)(), updated.status, updated.updatedAt, id);
     return updated;
 };
 exports.updateProject = updateProject;
 const deleteProject = (id) => {
+    if (usePostgres)
+        return pgStore.deleteProject(id);
     const taskCount = get('SELECT COUNT(*) as count FROM tasks WHERE project_id = ?', id)?.count ?? 0;
     if (taskCount > 0)
         return false;
@@ -455,11 +538,15 @@ const deleteProject = (id) => {
 };
 exports.deleteProject = deleteProject;
 const deleteTask = (id) => {
+    if (usePostgres)
+        return pgStore.deleteTask(id);
     const result = db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
     return result.changes > 0;
 };
 exports.deleteTask = deleteTask;
 const createDeployment = (input) => {
+    if (usePostgres)
+        return pgStore.createDeployment(input);
     const existing = input.externalId
         ? get('SELECT * FROM deployments WHERE project_id = ? AND external_id = ?', String(input.projectId || ''), String(input.externalId))
         : undefined;
@@ -489,6 +576,8 @@ const createDeployment = (input) => {
 };
 exports.createDeployment = createDeployment;
 const createIncident = (input) => {
+    if (usePostgres)
+        return pgStore.createIncident(input);
     const incident = {
         id: String(input.id || `INC-${Date.now()}`),
         projectId: String(input.projectId || ensureDefaultProject()),
@@ -507,6 +596,8 @@ const createIncident = (input) => {
 };
 exports.createIncident = createIncident;
 const updateIncident = (id, patch) => {
+    if (usePostgres)
+        return pgStore.updateIncident(id, patch);
     const existing = get('SELECT * FROM incidents WHERE id = ?', id);
     if (!existing)
         return undefined;
@@ -524,6 +615,8 @@ const updateIncident = (id, patch) => {
 };
 exports.updateIncident = updateIncident;
 const recordProjectHealthCheck = (input) => {
+    if (usePostgres)
+        return pgStore.recordProjectHealthCheck(input);
     const check = {
         id: (0, uuid_1.v4)(),
         checkedAt: input.checkedAt || now(),
@@ -538,10 +631,12 @@ const recordProjectHealthCheck = (input) => {
     return check;
 };
 exports.recordProjectHealthCheck = recordProjectHealthCheck;
-const listProjectHealthChecks = (projectId) => (projectId
+const listProjectHealthChecks = (projectId) => (usePostgres ? (() => { throw new Error('Use listProjectHealthChecksAsync when DATABASE_URL is configured'); })() : projectId
     ? all('SELECT * FROM project_health_checks WHERE project_id = ? ORDER BY checked_at DESC', projectId)
     : all('SELECT * FROM project_health_checks ORDER BY checked_at DESC')).map(projectHealthCheckFromRow);
 exports.listProjectHealthChecks = listProjectHealthChecks;
+const listProjectHealthChecksAsync = async (projectId) => usePostgres ? pgStore.listProjectHealthChecks(projectId) : (0, exports.listProjectHealthChecks)(projectId);
+exports.listProjectHealthChecksAsync = listProjectHealthChecksAsync;
 const upsertGitHubRepository = (repo) => {
     const existing = get('SELECT id FROM github_repositories WHERE full_name = ?', repo.fullName);
     const id = existing?.id ?? (0, uuid_1.v4)();
@@ -625,19 +720,25 @@ const listKubernetesDeployments = () => all('SELECT * FROM kubernetes_deployment
     image: row.image,
 }));
 exports.listKubernetesDeployments = listKubernetesDeployments;
-const listIncidents = () => all('SELECT * FROM incidents ORDER BY created_at DESC').map((row) => ({
-    id: row.id,
-    projectId: row.project_id,
-    title: row.title,
-    description: row.description || row.summary,
-    severity: row.severity,
-    status: row.status,
-    service: row.service,
-    createdAt: row.created_at,
-    resolvedAt: row.resolved_at,
-    summary: row.summary,
-}));
+const listIncidents = () => {
+    if (usePostgres)
+        throw new Error('Use listIncidentsAsync when DATABASE_URL is configured');
+    return all('SELECT * FROM incidents ORDER BY created_at DESC').map((row) => ({
+        id: row.id,
+        projectId: row.project_id,
+        title: row.title,
+        description: row.description || row.summary,
+        severity: row.severity,
+        status: row.status,
+        service: row.service,
+        createdAt: row.created_at,
+        resolvedAt: row.resolved_at,
+        summary: row.summary,
+    }));
+};
 exports.listIncidents = listIncidents;
+const listIncidentsAsync = async () => usePostgres ? pgStore.listIncidents() : (0, exports.listIncidents)();
+exports.listIncidentsAsync = listIncidentsAsync;
 const calculateDoraMetrics = () => {
     const deployments = (0, exports.readStore)().deployments;
     const prs = (0, exports.listGitHubPullRequests)();
@@ -688,20 +789,22 @@ const analyzeIncidents = () => {
 };
 exports.analyzeIncidents = analyzeIncidents;
 const databaseInfo = () => ({
-    engine: 'SQLite',
-    path: dbPath,
-    tables: [
-        'tasks',
-        'projects',
-        'deployments',
-        'slos',
-        'github_repositories',
-        'github_commits',
-        'github_pull_requests',
-        'kubernetes_nodes',
-        'kubernetes_pods',
-        'kubernetes_deployments',
-        'incidents',
-    ],
+    ...(usePostgres ? pgStore.databaseInfo() : {
+        engine: 'SQLite',
+        path: dbPath,
+        tables: [
+            'tasks',
+            'projects',
+            'deployments',
+            'slos',
+            'github_repositories',
+            'github_commits',
+            'github_pull_requests',
+            'kubernetes_nodes',
+            'kubernetes_pods',
+            'kubernetes_deployments',
+            'incidents',
+        ],
+    }),
 });
 exports.databaseInfo = databaseInfo;

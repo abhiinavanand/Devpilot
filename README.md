@@ -153,6 +153,8 @@ Without that variable, the UI correctly shows `Grafana unavailable` instead of s
 
 To use Grafana Cloud as the global monitoring destination, see [docs/grafana-cloud.md](/Users/abhinavanand/Documents/Codex/2026-06-11/files-mentioned-by-the-user-devpilot/DEVPILOT-AI-1/docs/grafana-cloud.md). DevPilot is set up to forward Prometheus metrics to Grafana Cloud through Prometheus `remote_write`.
 
+On Vercel, DevPilot can also push project metrics directly to Grafana Cloud from the API gateway. A production cron job is configured at `/api/cron/push-metrics`. On Hobby plans, Vercel cron jobs run once per day.
+
 If the Grafana button refuses to connect, start the monitoring stack:
 
 ```bash

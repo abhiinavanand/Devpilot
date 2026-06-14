@@ -7,7 +7,11 @@ exports.clearActivity = exports.listActivity = exports.recordActivity = void 0;
 const uuid_1 = require("uuid");
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
-const dataDir = path_1.default.resolve(__dirname, '..', '.data');
+const dataDir = process.env.DEVPILOT_DATA_DIR
+    ? path_1.default.resolve(process.env.DEVPILOT_DATA_DIR)
+    : process.env.VERCEL
+        ? path_1.default.join('/tmp', 'devpilot-ai')
+        : path_1.default.resolve(__dirname, '..', '.data');
 const activityPath = path_1.default.join(dataDir, 'activity.json');
 if (!fs_1.default.existsSync(dataDir)) {
     fs_1.default.mkdirSync(dataDir, { recursive: true });

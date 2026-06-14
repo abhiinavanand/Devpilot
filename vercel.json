@@ -3,6 +3,12 @@
   "installCommand": "npm install && npm install --prefix apps/frontend && npm install --prefix apps/api-gateway",
   "buildCommand": "npm --prefix apps/frontend run build",
   "outputDirectory": "apps/frontend/dist",
+  "crons": [
+    {
+      "path": "/api/cron/push-metrics",
+      "schedule": "0 0 * * *"
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/(.*)",

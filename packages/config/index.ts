@@ -52,10 +52,10 @@ const config = {
   project: {
     name: 'DevPilot AI',
     version: process.env.APP_VERSION || '0.9.4',
-    changelogPath: '/docs/CHANGELOG.md',
-    roadmapPath: '/docs/roadmap.md',
-    architecturePath: '/architecture/system-overview.md',
-    apiDocsPath: '/api-docs/README.md',
+    changelogPath: '/README.md',
+    roadmapPath: '/README.md',
+    architecturePath: '/docs/architecture/overview.md',
+    apiDocsPath: '/docs/api/README.md',
     engineeringHandbookPath: '/docs/engineering/handbook.md',
     // TODO: automate version sync with CI pipeline
     // TECH-DEBT: normalize docs paths across services

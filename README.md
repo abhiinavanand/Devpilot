@@ -87,6 +87,13 @@ Open:
 - API Gateway: `http://localhost:3000`
 - Metrics: `http://localhost:3000/metrics`
 
+## Troubleshooting
+
+- API not starting: check port `3000` is free.
+- Frontend cannot load data: verify the API is running and reachable at `http://localhost:3000`.
+- Grafana link opens but cannot find the dashboard: import [project-observability.json](/Users/abhinavanand/Documents/Codex/2026-06-11/files-mentioned-by-the-user-devpilot/DEVPILOT-AI-1/monitoring/grafana/dashboards/project-observability.json) into Grafana and keep the UID `devpilot-project-observability`.
+- Grafana Cloud link opens but shows no metrics: confirm the Vercel API cron or project activity has pushed metrics successfully.
+
 ## Docker
 
 Run the complete platform:
@@ -198,13 +205,8 @@ Supported providers are `Vercel`, `GitHub Actions`, `Railway`, `Render`, `Manual
 npm run build
 ```
 
-## Screenshots
+## Project Docs
 
-Add demo screenshots here before presenting:
-
-- Login
-- Overview
-- Projects
-- Project Detail Kanban
-- Monitoring
-- Grafana
+- Architecture overview: [docs/architecture/overview.md](/Users/abhinavanand/Documents/Codex/2026-06-11/files-mentioned-by-the-user-devpilot/DEVPILOT-AI-1/docs/architecture/overview.md)
+- API docs: [docs/api/README.md](/Users/abhinavanand/Documents/Codex/2026-06-11/files-mentioned-by-the-user-devpilot/DEVPILOT-AI-1/docs/api/README.md)
+- Grafana Cloud setup: [docs/grafana-cloud.md](/Users/abhinavanand/Documents/Codex/2026-06-11/files-mentioned-by-the-user-devpilot/DEVPILOT-AI-1/docs/grafana-cloud.md)

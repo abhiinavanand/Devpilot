@@ -11,8 +11,7 @@
     "seed": "npm --prefix apps/api-gateway run seed",
     "monitoring": "docker compose -f docker-compose.monitoring.yml up",
     "monitoring:grafana-cloud": "bash scripts/configure_grafana_cloud.sh",
-    "test": "jest",
-    "scaffold:generate": "node scripts/generate_scaffold.js"
+    "test": "jest"
   },
   "dependencies": {
     "axios": "^0.21.1",

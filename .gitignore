@@ -1,3 +1,4 @@
 node_modules
 .vercel
 monitoring/prometheus/prometheus.grafana-cloud.generated.yml
+apps/api-gateway/.data/

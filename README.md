@@ -1,81 +1,91 @@
 # DevPilot AI
 
-DevPilot AI is a TypeScript internship demo for project management, deployment tracking, and monitoring.
+DevPilot AI is a project-centric SaaS demo for engineering teams. It combines project management, task tracking, deployment history, incident tracking, and Grafana-backed monitoring in one workflow.
 
-The app is intentionally project-centric:
+Core flow:
 
-Login -> Overview -> Projects -> Project Detail -> Tasks/Kanban/Deployments/Incidents/Monitoring -> Grafana
+`Login -> Overview -> Projects -> Project Detail -> Tasks / Kanban / Deployments / Incidents / Monitoring`
 
-## Authentication
+## What It Does
 
-Authentication is localStorage-based for demo use. Register an account on `/login`, then log in with that email and password. No backend auth service is required.
+- Create and manage projects
+- Track tasks in list and Kanban views
+- Record deployments from manual input or webhooks
+- Track incidents per project
+- Monitor project app health from a public app URL
+- Open project-specific Grafana dashboards
+
+## Stack
+
+- Frontend: React + TypeScript + Vite
+- Backend: Express + TypeScript
+- Data: Postgres in production, local store for development
+- Observability: Prometheus metrics + Grafana / Grafana Cloud
+- Hosting: Vercel
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  User[Engineering Team] --> Frontend[React Frontend]
-  Frontend --> Gateway[Express API Gateway]
-  Gateway --> SQLite[(SQLite Demo Database)]
-  Gateway --> Metrics[/Prometheus Metrics/]
-  Prometheus --> Gateway
-  Grafana --> Prometheus
-  Frontend --> GrafanaLink[Open Grafana Dashboard]
+  User["User"] --> Frontend["Frontend (React)"]
+  Frontend --> Api["API Gateway (Express)"]
+  Api --> Data["Project Data Store"]
+  Api --> Health["Project Health Checks"]
+  Api --> Metrics["Prometheus-style Metrics"]
+  Metrics --> Grafana["Grafana / Grafana Cloud"]
 ```
 
-## Folder Structure
+## Repo Layout
 
 ```text
 apps/
-  frontend/       React + Vite application
-  api-gateway/    Express + SQLite API
-services/
-  auth-service/
-  project-service/
-  analytics-service/
-  notification-service/
+  api-gateway/    Express API and metrics publisher
+  frontend/       React app
 packages/
-  shared-types/
-  shared-utils/
   config/
   logger/
+  shared-types/
+  shared-utils/
 monitoring/
-  prometheus/
   grafana/
+  prometheus/
 docs/
+  api/
+  architecture/
+  grafana-cloud.md
 ```
 
-The frontend contains only the primary product routes:
+## Main Routes
 
 - `/login`
 - `/`
 - `/projects`
 - `/projects/:id`
 
-Tasks, Kanban, deployments, incidents, and monitoring are accessed inside `/projects/:id`.
+Everything important happens inside a project.
 
 ## Local Development
 
-Install dependencies in the two runnable apps:
+Install dependencies:
 
 ```bash
 npm --prefix apps/api-gateway install
 npm --prefix apps/frontend install
 ```
 
-Clear local data:
+Seed local demo data:
 
 ```bash
 npm run seed
 ```
 
-Start the API:
+Run the API:
 
 ```bash
 npm run dev:api
 ```
 
-Start the frontend:
+Run the frontend:
 
 ```bash
 npm run dev
@@ -84,19 +94,12 @@ npm run dev
 Open:
 
 - Frontend: `http://localhost:5173`
-- API Gateway: `http://localhost:3000`
+- API: `http://localhost:3000`
 - Metrics: `http://localhost:3000/metrics`
-
-## Troubleshooting
-
-- API not starting: check port `3000` is free.
-- Frontend cannot load data: verify the API is running and reachable at `http://localhost:3000`.
-- Grafana link opens but cannot find the dashboard: import [project-observability.json](/Users/abhinavanand/Documents/Codex/2026-06-11/files-mentioned-by-the-user-devpilot/DEVPILOT-AI-1/monitoring/grafana/dashboards/project-observability.json) into Grafana and keep the UID `devpilot-project-observability`.
-- Grafana Cloud link opens but shows no metrics: confirm the Vercel API cron or project activity has pushed metrics successfully.
 
 ## Docker
 
-Run the complete platform:
+Run the local platform:
 
 ```bash
 docker compose up --build
@@ -105,22 +108,25 @@ docker compose up --build
 Services:
 
 - Frontend: `http://localhost:5173`
-- API Gateway: `http://localhost:3000`
+- API: `http://localhost:3000`
 - Prometheus: `http://localhost:9090`
 - Grafana: `http://localhost:3001`
 
-Grafana login:
+Grafana local login:
 
-- User: `admin`
-- Password: `admin`
+- user: `admin`
+- password: `admin`
 
-Anonymous dashboard viewing is also enabled for demo use, so if Grafana is exposed publicly the project dashboard link can open without a separate login.
+## Monitoring Model
 
-## Monitoring
+When a project has an `appUrl`, DevPilot checks it periodically and records:
 
-Prometheus scrapes the API gateway `/metrics` endpoint.
+- health state
+- HTTP status code
+- response time
+- uptime trend
 
-Tracked application metrics:
+The API exposes Prometheus-style metrics such as:
 
 - `http_requests_total`
 - `http_request_duration_seconds`
@@ -129,75 +135,37 @@ Tracked application metrics:
 - `deployments_created_total`
 - `incidents_created_total`
 - `active_projects_total`
-
-Grafana is provisioned automatically from `monitoring/grafana`.
-
-The React monitoring page intentionally does not recreate Grafana charts. It shows service health and links to Grafana for detailed observability.
-
-Project monitoring flow:
-
-```text
-Project app URL -> DevPilot health checker -> /metrics -> Prometheus -> Grafana
-```
-
-When a project has an App URL, DevPilot checks it every 30 seconds and records HTTP status code, response time, health status, and uptime history. These are exposed as Prometheus metrics:
-
 - `project_health_status`
 - `project_response_time_ms`
 - `project_http_status_code`
 - `project_uptime_percent`
-- `project_health_checks_count`
 
-The project Monitoring tab links to the provisioned Grafana dashboard `Project Observability`.
-
-For deployed frontend environments such as Vercel, set a public Grafana URL with:
-
-```bash
-VITE_OPEN_GRAFANA_URL=https://your-public-grafana-url
-```
-
-Without that variable, the UI correctly shows `Grafana unavailable` instead of sending users to `localhost`.
-
-To use Grafana Cloud as the global monitoring destination, see [docs/grafana-cloud.md](/Users/abhinavanand/Documents/Codex/2026-06-11/files-mentioned-by-the-user-devpilot/DEVPILOT-AI-1/docs/grafana-cloud.md). DevPilot is set up to forward Prometheus metrics to Grafana Cloud through Prometheus `remote_write`.
-
-On Vercel, DevPilot can also push project metrics directly to Grafana Cloud from the API gateway. A production cron job is configured at `/api/cron/push-metrics`. On Hobby plans, Vercel cron jobs run once per day.
-
-If the Grafana button refuses to connect, start the monitoring stack:
-
-```bash
-docker compose up --build prometheus grafana api-gateway
-```
-
-Grafana runs at `http://localhost:3001`.
+In production, DevPilot can also push these project metrics to Grafana Cloud directly from the API gateway.
 
 ## Deployment Tracking
 
-Each project has a Deployments tab for release records from manual entries or CI/CD tools.
+Projects support deployment webhooks and manual deployment entries.
 
-CI/CD systems can post deployment events to:
+Webhook endpoint shape:
 
 ```text
-POST /api/projects/:projectId/deployments/webhook
+/webhooks/deployments/:platform/:token
 ```
 
-Example payload:
+Supported platforms:
 
-```json
-{
-  "provider": "GitHub Actions",
-  "service": "payment-service",
-  "version": "v1.4.2",
-  "environment": "production",
-  "status": "succeeded",
-  "deploymentUrl": "https://github.com/acme/app/actions/runs/123",
-  "commitSha": "abc123def456",
-  "branch": "main",
-  "triggeredBy": "release-bot",
-  "externalId": "123"
-}
-```
+- GitHub Pages
+- Vercel
+- Railway
+- Render
+- Other
 
-Supported providers are `Vercel`, `GitHub Actions`, `Railway`, `Render`, `Manual`, and `Other`. Deployment records are project-scoped release history; detailed latency and request metrics stay in Grafana.
+## Troubleshooting
+
+- API not starting: make sure port `3000` is free
+- Frontend not loading data: verify the API is reachable at `http://localhost:3000`
+- Grafana says dashboard not found: import [project-observability.json](/Users/abhinavanand/Documents/Codex/2026-06-11/files-mentioned-by-the-user-devpilot/DEVPILOT-AI-1/monitoring/grafana/dashboards/project-observability.json) and keep the UID `devpilot-project-observability`
+- Grafana Cloud opens but shows no data: confirm a project has an `appUrl` and that DevPilot has pushed metrics through activity or cron
 
 ## Build
 
@@ -205,8 +173,8 @@ Supported providers are `Vercel`, `GitHub Actions`, `Railway`, `Render`, `Manual
 npm run build
 ```
 
-## Project Docs
+## Useful Docs
 
-- Architecture overview: [docs/architecture/overview.md](/Users/abhinavanand/Documents/Codex/2026-06-11/files-mentioned-by-the-user-devpilot/DEVPILOT-AI-1/docs/architecture/overview.md)
 - API docs: [docs/api/README.md](/Users/abhinavanand/Documents/Codex/2026-06-11/files-mentioned-by-the-user-devpilot/DEVPILOT-AI-1/docs/api/README.md)
+- Architecture overview: [docs/architecture/overview.md](/Users/abhinavanand/Documents/Codex/2026-06-11/files-mentioned-by-the-user-devpilot/DEVPILOT-AI-1/docs/architecture/overview.md)
 - Grafana Cloud setup: [docs/grafana-cloud.md](/Users/abhinavanand/Documents/Codex/2026-06-11/files-mentioned-by-the-user-devpilot/DEVPILOT-AI-1/docs/grafana-cloud.md)

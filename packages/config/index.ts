@@ -56,7 +56,7 @@ const config = {
     roadmapPath: '/README.md',
     architecturePath: '/docs/architecture/overview.md',
     apiDocsPath: '/docs/api/README.md',
-    engineeringHandbookPath: '/docs/engineering/handbook.md',
+    engineeringHandbookPath: '/README.md',
     // TODO: automate version sync with CI pipeline
     // TECH-DEBT: normalize docs paths across services
   },

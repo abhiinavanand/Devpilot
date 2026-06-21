@@ -600,8 +600,7 @@ const ProjectSetupPanel = ({
       <div className="card surface-card space-y-4">
         <div className="topbar">
           <div>
-            <h3>Access Control</h3>
-            <p className="subtle">Roles are scoped to this project. Viewers can read, members can work, admins can manage, and only the owner can delete the project.</p>
+            <h3>Team</h3>
           </div>
           <span className="badge inline-flex items-center gap-2"><Users size={14} /> {memberDrafts.length} members</span>
         </div>
@@ -646,7 +645,7 @@ const ProjectSetupPanel = ({
 
         <div className="hero-actions">
           <button className="toggle inline-flex items-center justify-center" type="button" onClick={onSaveMembers} disabled={!canManageAccess}>
-            Save Access
+            Save Team
           </button>
         </div>
       </div>

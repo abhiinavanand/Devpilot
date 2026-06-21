@@ -4,8 +4,6 @@ import { LogOut, Moon, SunMedium } from 'lucide-react';
 import { AppLayout } from './layout/AppLayout';
 import { Overview } from './pages/Overview';
 import { Projects } from './pages/Projects';
-import { Analytics } from './pages/Analytics';
-import { Monitoring } from './pages/Monitoring';
 import { Button } from './components/ui/button';
 import { ToastHost } from './components/ui/toast-context';
 import { Login, type AuthUser } from './pages/Login';
@@ -80,8 +78,8 @@ const App = () => {
             <Route index element={<Overview />} />
             <Route path="projects" element={<Projects />} />
             <Route path="projects/:id" element={<ProjectDetail />} />
-            <Route path="analytics" element={<Analytics />} />
-            <Route path="monitoring" element={<Monitoring />} />
+            <Route path="analytics" element={<Navigate to="/projects" replace />} />
+            <Route path="monitoring" element={<Navigate to="/projects" replace />} />
           </Route>
           <Route path="*" element={<Navigate to={authenticated ? '/' : '/login'} replace />} />
         </Routes>

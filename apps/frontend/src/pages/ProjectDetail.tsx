@@ -1,10 +1,10 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import type { DragEvent } from 'react';
 import { useParams } from 'react-router-dom';
-import { Activity, Boxes, Copy, ExternalLink, FolderKanban, Gauge, GitBranch, Link2, Plus, ShieldAlert, Siren, Waypoints, type LucideIcon } from 'lucide-react';
+import { Activity, Boxes, Copy, ExternalLink, FolderKanban, Gauge, GitBranch, Link2, Plus, ShieldAlert, Siren, Trash2, UserPlus, Users, Waypoints, type LucideIcon } from 'lucide-react';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { absoluteApiUrl } from '../api/client';
-import { workspaceApi, type Deployment, type Incident, type Priority, type Project, type ProjectHealthCheck, type Task, type TaskStatus } from '../api/workspace';
+import { workspaceApi, type Deployment, type Incident, type Priority, type Project, type ProjectHealthCheck, type ProjectMember, type ProjectRole, type Task, type TaskStatus } from '../api/workspace';
 import { useRealtimeListener } from '../api/realtime';
 
 const tabs = ['Overview', 'Tasks', 'Kanban', 'Deployments', 'Incidents', 'Analytics', 'Monitoring'] as const;
@@ -22,6 +22,14 @@ const defaultGrafanaUrl = (() => {
 const grafanaUrl = import.meta.env.VITE_OPEN_GRAFANA_URL || defaultGrafanaUrl;
 const deploymentProviders: Deployment['provider'][] = ['Manual', 'Vercel', 'GitHub Actions', 'Railway', 'Render', 'Other'];
 const deploymentPlatforms: Project['deploymentPlatform'][] = ['GitHub Pages', 'Vercel', 'Railway', 'Render', 'Other'];
+const projectRoles: ProjectRole[] = ['owner', 'admin', 'member', 'viewer'];
+const readStoredUser = () => {
+  try {
+    return JSON.parse(localStorage.getItem('devpilot.user') || 'null') as { name?: string; email?: string } | null;
+  } catch {
+    return null;
+  }
+};
 const normalizeUrlInput = (value: string) => {
   const trimmed = value.trim();
   return trimmed && !/^https?:\/\//i.test(trimmed) ? `https://${trimmed}` : trimmed;
@@ -89,6 +97,7 @@ type DeploymentDraft = {
 
 export const ProjectDetail = () => {
   const { id = '' } = useParams();
+  const currentUser = readStoredUser();
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>('Overview');
   const [project, setProject] = useState<Project | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -99,6 +108,9 @@ export const ProjectDetail = () => {
   const [copiedWebhook, setCopiedWebhook] = useState(false);
   const [appUrlDraft, setAppUrlDraft] = useState('');
   const [deploymentPlatformDraft, setDeploymentPlatformDraft] = useState<Project['deploymentPlatform']>('Other');
+  const [memberDrafts, setMemberDrafts] = useState<ProjectMember[]>([]);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<ProjectRole>('member');
   const [taskDraft, setTaskDraft] = useState({ title: '', description: '', assignee: '', priority: 'Medium' as Priority, status: 'TODO' as TaskStatus });
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [incidentDraft, setIncidentDraft] = useState({ title: '', description: '', severity: 'Medium' as Priority, service: 'api-gateway' });
@@ -153,7 +165,8 @@ export const ProjectDetail = () => {
   useEffect(() => {
     setAppUrlDraft(project?.appUrl || '');
     setDeploymentPlatformDraft(project?.deploymentPlatform || detectDeploymentPlatform(project?.appUrl || ''));
-  }, [project?.id, project?.deploymentPlatform, project?.appUrl]);
+    setMemberDrafts(project?.members || []);
+  }, [project?.id, project?.deploymentPlatform, project?.appUrl, project?.members]);
 
   const summary = useMemo(() => ({
     totalTasks: tasks.length,
@@ -162,6 +175,14 @@ export const ProjectDetail = () => {
     openIncidents: incidents.filter((incident) => incident.status !== 'Resolved').length,
     deployments: deployments.length,
   }), [tasks, incidents, deployments]);
+  const currentMembership = useMemo(() => {
+    const email = String(currentUser?.email || '').trim().toLowerCase();
+    if (!email || !project) return undefined;
+    return (project.members || []).find((member) => member.email.toLowerCase() === email)
+      || (project.ownerEmail?.toLowerCase() === email ? { email, name: project.owner, role: 'owner' as const } : undefined);
+  }, [currentUser?.email, project]);
+  const canManageAccess = currentMembership?.role === 'owner' || currentMembership?.role === 'admin';
+  const canEditContent = currentMembership?.role === 'owner' || currentMembership?.role === 'admin' || currentMembership?.role === 'member';
   const effectiveDeploymentPlatform = deploymentPlatformDraft || project?.deploymentPlatform || 'Other';
   const deploymentWebhookUrl = project?.deploymentWebhookToken
     ? absoluteApiUrl(`/webhooks/deployments/${webhookPlatformSlug(effectiveDeploymentPlatform)}/${project.deploymentWebhookToken}`)
@@ -185,6 +206,36 @@ export const ProjectDetail = () => {
     setProject(updated);
     setAppUrlDraft(updated.appUrl || '');
     setDeploymentPlatformDraft(updated.deploymentPlatform || 'Other');
+  };
+
+  const updateMemberRole = (email: string, role: ProjectRole) => {
+    setMemberDrafts((current) => current.map((member) => (
+      member.email === email
+        ? { ...member, role: member.role === 'owner' ? 'owner' : role }
+        : member
+    )));
+  };
+
+  const removeMember = (email: string) => {
+    setMemberDrafts((current) => current.filter((member) => member.email !== email || member.role === 'owner'));
+  };
+
+  const addMember = () => {
+    const email = inviteEmail.trim().toLowerCase();
+    if (!email) return;
+    setMemberDrafts((current) => {
+      if (current.some((member) => member.email.toLowerCase() === email)) return current;
+      return [...current, { email, name: email, role: inviteRole }];
+    });
+    setInviteEmail('');
+    setInviteRole('member');
+  };
+
+  const saveMembers = async () => {
+    if (!project) return;
+    const { project: updated } = await workspaceApi.updateProject(project.id, { members: memberDrafts });
+    setProject(updated);
+    setMemberDrafts(updated.members || []);
   };
 
   const saveTask = async (event: FormEvent) => {
@@ -278,7 +329,7 @@ export const ProjectDetail = () => {
           </div>
           <div className="hero-meta">
             <StatusBadge value={project.status} />
-            <span className="subtle">{project.owner} · {project.serviceName || 'No service mapped yet'}</span>
+            <span className="subtle">{project.owner} · {project.serviceName || 'No service mapped yet'} · {(project.members || []).length} team member{(project.members || []).length === 1 ? '' : 's'}</span>
           </div>
         </div>
       </div>
@@ -293,6 +344,16 @@ export const ProjectDetail = () => {
         copied={copiedWebhook}
         onCopy={copyDeploymentWebhook}
         onSaveAppUrl={saveAppUrl}
+        memberDrafts={memberDrafts}
+        canManageAccess={canManageAccess}
+        inviteEmail={inviteEmail}
+        setInviteEmail={setInviteEmail}
+        inviteRole={inviteRole}
+        setInviteRole={setInviteRole}
+        onAddMember={addMember}
+        onRemoveMember={removeMember}
+        onUpdateMemberRole={updateMemberRole}
+        onSaveMembers={saveMembers}
       />
 
       <div className="tabs">
@@ -328,18 +389,18 @@ export const ProjectDetail = () => {
 
       {activeTab === 'Tasks' ? (
         <div className="space-y-6">
-          <TaskForm draft={taskDraft} setDraft={setTaskDraft} editing={Boolean(editingTask)} onSubmit={saveTask} />
-          <TaskTable tasks={tasks} onEdit={editTask} onDelete={deleteTask} onStatus={(task, status) => workspaceApi.updateTask(task.id, { status }).then(({ task: updated }) => setTasks((current) => current.map((item) => (item.id === updated.id ? updated : item))))} />
+          <TaskForm draft={taskDraft} setDraft={setTaskDraft} editing={Boolean(editingTask)} onSubmit={saveTask} assigneeOptions={(project.members || []).map((member) => member.email)} disabled={!canEditContent} />
+          <TaskTable tasks={tasks} onEdit={editTask} onDelete={deleteTask} onStatus={(task, status) => workspaceApi.updateTask(task.id, { status }).then(({ task: updated }) => setTasks((current) => current.map((item) => (item.id === updated.id ? updated : item))))} disabled={!canEditContent} />
         </div>
       ) : null}
 
       {activeTab === 'Kanban' ? (
         <div className="kanban kanban-wide">
           {statuses.map((column) => (
-            <div key={column.id} className="kanban-column" onDragOver={(event) => event.preventDefault()} onDrop={(event) => moveTask(event, column.id)}>
+            <div key={column.id} className="kanban-column" onDragOver={(event) => canEditContent && event.preventDefault()} onDrop={(event) => canEditContent && moveTask(event, column.id)}>
               <div className="topbar"><h3>{column.title}</h3><span className="badge">{tasks.filter((task) => task.status === column.id).length}</span></div>
               {tasks.filter((task) => task.status === column.id).map((task) => (
-                <div className="kanban-card" key={task.id} draggable onDragStart={(event) => event.dataTransfer.setData('taskId', task.id)}>
+                <div className="kanban-card" key={task.id} draggable={canEditContent} onDragStart={(event) => canEditContent && event.dataTransfer.setData('taskId', task.id)}>
                   <strong>{task.title}</strong>
                   <p className="subtle">{task.assignee || 'Unassigned'} · {task.priority}</p>
                 </div>
@@ -352,7 +413,7 @@ export const ProjectDetail = () => {
       {activeTab === 'Deployments' ? (
         <div className="space-y-6">
           <DeploymentWebhookSetup webhookUrl={deploymentWebhookUrl} copied={copiedWebhook} onCopy={copyDeploymentWebhook} platform={effectiveDeploymentPlatform} />
-          <DeploymentForm draft={deploymentDraft} setDraft={setDeploymentDraft} onSubmit={createDeployment} />
+          <DeploymentForm draft={deploymentDraft} setDraft={setDeploymentDraft} onSubmit={createDeployment} disabled={!canEditContent} />
           <DeploymentTable deployments={deployments} project={project} />
         </div>
       ) : null}
@@ -360,13 +421,13 @@ export const ProjectDetail = () => {
       {activeTab === 'Incidents' ? (
         <div className="space-y-6">
           <form className="card surface-card grid gap-3 md:grid-cols-[1fr_1fr_160px_auto]" onSubmit={createIncident}>
-            <input className="editor min-h-0" placeholder="Incident title" value={incidentDraft.title} onChange={(event) => setIncidentDraft({ ...incidentDraft, title: event.target.value })} />
-            <input className="editor min-h-0" placeholder="Service" value={incidentDraft.service} onChange={(event) => setIncidentDraft({ ...incidentDraft, service: event.target.value })} />
-            <select className="editor min-h-0" value={incidentDraft.severity} onChange={(event) => setIncidentDraft({ ...incidentDraft, severity: event.target.value as Priority })}>{['Low', 'Medium', 'High', 'Critical'].map((severity) => <option key={severity}>{severity}</option>)}</select>
-            <button className="toggle inline-flex items-center justify-center gap-2" type="submit"><Plus size={16} /> Create</button>
-            <textarea className="editor md:col-span-4" placeholder="Description" value={incidentDraft.description} onChange={(event) => setIncidentDraft({ ...incidentDraft, description: event.target.value })} />
+            <input className="editor min-h-0" placeholder="Incident title" value={incidentDraft.title} onChange={(event) => setIncidentDraft({ ...incidentDraft, title: event.target.value })} disabled={!canEditContent} />
+            <input className="editor min-h-0" placeholder="Service" value={incidentDraft.service} onChange={(event) => setIncidentDraft({ ...incidentDraft, service: event.target.value })} disabled={!canEditContent} />
+            <select className="editor min-h-0" value={incidentDraft.severity} onChange={(event) => setIncidentDraft({ ...incidentDraft, severity: event.target.value as Priority })} disabled={!canEditContent}>{['Low', 'Medium', 'High', 'Critical'].map((severity) => <option key={severity}>{severity}</option>)}</select>
+            <button className="toggle inline-flex items-center justify-center gap-2" type="submit" disabled={!canEditContent}><Plus size={16} /> Create</button>
+            <textarea className="editor md:col-span-4" placeholder="Description" value={incidentDraft.description} onChange={(event) => setIncidentDraft({ ...incidentDraft, description: event.target.value })} disabled={!canEditContent} />
           </form>
-          <IncidentTable incidents={incidents} onUpdate={updateIncident} />
+          <IncidentTable incidents={incidents} onUpdate={updateIncident} disabled={!canEditContent} />
         </div>
       ) : null}
 
@@ -377,21 +438,26 @@ export const ProjectDetail = () => {
   );
 };
 
-const TaskForm = ({ draft, setDraft, editing, onSubmit }: { draft: { title: string; description: string; assignee: string; priority: Priority; status: TaskStatus }; setDraft: (draft: { title: string; description: string; assignee: string; priority: Priority; status: TaskStatus }) => void; editing: boolean; onSubmit: (event: FormEvent) => void }) => (
+const TaskForm = ({ draft, setDraft, editing, onSubmit, assigneeOptions, disabled }: { draft: { title: string; description: string; assignee: string; priority: Priority; status: TaskStatus }; setDraft: (draft: { title: string; description: string; assignee: string; priority: Priority; status: TaskStatus }) => void; editing: boolean; onSubmit: (event: FormEvent) => void; assigneeOptions: string[]; disabled: boolean }) => (
   <form className="card surface-card grid gap-3 md:grid-cols-[1fr_1fr_140px_140px_auto]" onSubmit={onSubmit}>
-    <input className="editor min-h-0" placeholder="Task title" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
-    <input className="editor min-h-0" placeholder="Assignee" value={draft.assignee} onChange={(event) => setDraft({ ...draft, assignee: event.target.value })} />
-    <select className="editor min-h-0" value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value as Priority })}>{['Low', 'Medium', 'High', 'Critical'].map((priority) => <option key={priority}>{priority}</option>)}</select>
-    <select className="editor min-h-0" value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as TaskStatus })}>{statuses.map((status) => <option key={status.id} value={status.id}>{status.title}</option>)}</select>
-    <button className="toggle" type="submit">{editing ? 'Save' : 'Create'}</button>
-    <textarea className="editor md:col-span-5" placeholder="Description" value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
+    <input className="editor min-h-0" placeholder="Task title" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} disabled={disabled} />
+    <>
+      <input className="editor min-h-0" list="project-assignees" placeholder="Assignee" value={draft.assignee} onChange={(event) => setDraft({ ...draft, assignee: event.target.value })} disabled={disabled} />
+      <datalist id="project-assignees">
+        {assigneeOptions.map((option) => <option key={option} value={option} />)}
+      </datalist>
+    </>
+    <select className="editor min-h-0" value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value as Priority })} disabled={disabled}>{['Low', 'Medium', 'High', 'Critical'].map((priority) => <option key={priority}>{priority}</option>)}</select>
+    <select className="editor min-h-0" value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as TaskStatus })} disabled={disabled}>{statuses.map((status) => <option key={status.id} value={status.id}>{status.title}</option>)}</select>
+    <button className="toggle" type="submit" disabled={disabled}>{editing ? 'Save' : 'Create'}</button>
+    <textarea className="editor md:col-span-5" placeholder="Description" value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} disabled={disabled} />
   </form>
 );
 
-const TaskTable = ({ tasks, onEdit, onDelete, onStatus }: { tasks: Task[]; onEdit: (task: Task) => void; onDelete: (task: Task) => void; onStatus: (task: Task, status: TaskStatus) => void }) => (
+const TaskTable = ({ tasks, onEdit, onDelete, onStatus, disabled }: { tasks: Task[]; onEdit: (task: Task) => void; onDelete: (task: Task) => void; onStatus: (task: Task, status: TaskStatus) => void; disabled: boolean }) => (
   <div className="card surface-card overflow-x-auto">
     <table className="data-table"><thead><tr><th>Title</th><th>Priority</th><th>Assignee</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-      {tasks.map((task) => <tr key={task.id}><td>{task.title}</td><td>{task.priority}</td><td>{task.assignee}</td><td><select value={task.status} onChange={(event) => onStatus(task, event.target.value as TaskStatus)}>{statuses.map((status) => <option key={status.id} value={status.id}>{status.title}</option>)}</select></td><td><button className="button-secondary" type="button" onClick={() => onEdit(task)}>Edit</button> <button className="button-secondary" type="button" onClick={() => onDelete(task)}>Delete</button></td></tr>)}
+      {tasks.map((task) => <tr key={task.id}><td>{task.title}</td><td>{task.priority}</td><td>{task.assignee}</td><td><select value={task.status} disabled={disabled} onChange={(event) => onStatus(task, event.target.value as TaskStatus)}>{statuses.map((status) => <option key={status.id} value={status.id}>{status.title}</option>)}</select></td><td><button className="button-secondary" type="button" disabled={disabled} onClick={() => onEdit(task)}>Edit</button> <button className="button-secondary" type="button" disabled={disabled} onClick={() => onDelete(task)}>Delete</button></td></tr>)}
       {!tasks.length ? <tr><td colSpan={5}>No tasks recorded for this project.</td></tr> : null}
     </tbody></table>
   </div>
@@ -418,38 +484,134 @@ const DeploymentTable = ({ deployments, project }: { deployments: Deployment[]; 
   </div>
 );
 
-const ProjectSetupPanel = ({ project, appUrlDraft, setAppUrlDraft, deploymentPlatformDraft, setDeploymentPlatformDraft, webhookUrl, copied, onCopy, onSaveAppUrl }: { project: Project; appUrlDraft: string; setAppUrlDraft: (value: string) => void; deploymentPlatformDraft: Project['deploymentPlatform']; setDeploymentPlatformDraft: (value: Project['deploymentPlatform']) => void; webhookUrl: string; copied: boolean; onCopy: () => void; onSaveAppUrl: (event: FormEvent) => void }) => {
+const ProjectSetupPanel = ({
+  project,
+  appUrlDraft,
+  setAppUrlDraft,
+  deploymentPlatformDraft,
+  setDeploymentPlatformDraft,
+  webhookUrl,
+  copied,
+  onCopy,
+  onSaveAppUrl,
+  memberDrafts,
+  canManageAccess,
+  inviteEmail,
+  setInviteEmail,
+  inviteRole,
+  setInviteRole,
+  onAddMember,
+  onRemoveMember,
+  onUpdateMemberRole,
+  onSaveMembers,
+}: {
+  project: Project;
+  appUrlDraft: string;
+  setAppUrlDraft: (value: string) => void;
+  deploymentPlatformDraft: Project['deploymentPlatform'];
+  setDeploymentPlatformDraft: (value: Project['deploymentPlatform']) => void;
+  webhookUrl: string;
+  copied: boolean;
+  onCopy: () => void;
+  onSaveAppUrl: (event: FormEvent) => void;
+  memberDrafts: ProjectMember[];
+  canManageAccess: boolean;
+  inviteEmail: string;
+  setInviteEmail: (value: string) => void;
+  inviteRole: ProjectRole;
+  setInviteRole: (value: ProjectRole) => void;
+  onAddMember: () => void;
+  onRemoveMember: (email: string) => void;
+  onUpdateMemberRole: (email: string, role: ProjectRole) => void;
+  onSaveMembers: () => void;
+}) => {
   const appUrlReady = Boolean(project.appUrl);
 
   return (
-    <div className="card surface-card space-y-4">
-      <div className="topbar">
-        <div>
-          <h3>Project Connection</h3>
-          <p className="subtle">Add the public App URL, let DevPilot detect where it is deployed, then use the generated webhook with that platform.</p>
+    <div className="grid gap-4 xl:grid-cols-[1.25fr_1fr]">
+      <div className="card surface-card space-y-4">
+        <div className="topbar">
+          <div>
+            <h3>Project Connection</h3>
+            <p className="subtle">Add the public App URL, let DevPilot detect where it is deployed, then use the generated webhook with that platform.</p>
+          </div>
+          <span className="badge">{appUrlReady ? 'Monitoring connected' : 'App URL needed'}</span>
         </div>
-        <span className="badge">{appUrlReady ? 'Monitoring connected' : 'App URL needed'}</span>
+        <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+          <input className="editor min-h-0" readOnly value={webhookUrl || 'Webhook is being generated.'} />
+          <button className="toggle inline-flex items-center justify-center gap-2" type="button" onClick={onCopy} disabled={!webhookUrl}>
+            <Copy size={16} /> {copied ? 'Copied' : 'Copy webhook'}
+          </button>
+        </div>
+        <form className="grid gap-3 md:grid-cols-[1fr_220px_auto_auto]" onSubmit={onSaveAppUrl}>
+          <input className="editor min-h-0" placeholder="https://your-deployed-app.com" value={appUrlDraft} onChange={(event) => setAppUrlDraft(event.target.value)} />
+          <select className="editor min-h-0" value={deploymentPlatformDraft} onChange={(event) => setDeploymentPlatformDraft(event.target.value as Project['deploymentPlatform'])}>
+            {deploymentPlatforms.map((platform) => <option key={platform}>{platform}</option>)}
+          </select>
+          <button className="toggle inline-flex items-center justify-center" type="button" onClick={() => setDeploymentPlatformDraft(detectDeploymentPlatform(appUrlDraft))} disabled={!appUrlDraft.trim()}>
+            Detect Platform
+          </button>
+          <button className="toggle inline-flex items-center justify-center" type="submit" disabled={!appUrlDraft.trim() || !canManageAccess}>
+            Save Connection
+          </button>
+        </form>
+        <p className="subtle">{providerInstructions[deploymentPlatformDraft]}</p>
+        <p className="subtle">After saving the App URL, DevPilot checks it every 30 seconds and Prometheus sends uptime, response time, HTTP status, and health state to Grafana.</p>
       </div>
-      <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-        <input className="editor min-h-0" readOnly value={webhookUrl || 'Webhook is being generated.'} />
-        <button className="toggle inline-flex items-center justify-center gap-2" type="button" onClick={onCopy} disabled={!webhookUrl}>
-          <Copy size={16} /> {copied ? 'Copied' : 'Copy webhook'}
-        </button>
+
+      <div className="card surface-card space-y-4">
+        <div className="topbar">
+          <div>
+            <h3>Access Control</h3>
+            <p className="subtle">Roles are scoped to this project. Viewers can read, members can work, admins can manage, and only the owner can delete the project.</p>
+          </div>
+          <span className="badge inline-flex items-center gap-2"><Users size={14} /> {memberDrafts.length} members</span>
+        </div>
+
+        <div className="space-y-3">
+          {memberDrafts.map((member) => (
+            <div key={member.email} className="grid gap-3 md:grid-cols-[1fr_140px_auto] items-center">
+              <div>
+                <strong>{member.name || member.email}</strong>
+                <p className="subtle">{member.email}</p>
+              </div>
+              <select
+                className="editor min-h-0"
+                value={member.role}
+                disabled={!canManageAccess || member.role === 'owner'}
+                onChange={(event) => onUpdateMemberRole(member.email, event.target.value as ProjectRole)}
+              >
+                {projectRoles.map((role) => <option key={role} value={role}>{role}</option>)}
+              </select>
+              <button
+                className="icon-button"
+                type="button"
+                title="Remove member"
+                disabled={!canManageAccess || member.role === 'owner'}
+                onClick={() => onRemoveMember(member.email)}
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-[1fr_140px_auto]">
+          <input className="editor min-h-0" placeholder="teammate@company.com" value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} disabled={!canManageAccess} />
+          <select className="editor min-h-0" value={inviteRole} onChange={(event) => setInviteRole(event.target.value as ProjectRole)} disabled={!canManageAccess}>
+            {projectRoles.filter((role) => role !== 'owner').map((role) => <option key={role} value={role}>{role}</option>)}
+          </select>
+          <button className="toggle inline-flex items-center justify-center gap-2" type="button" onClick={onAddMember} disabled={!canManageAccess || !inviteEmail.trim()}>
+            <UserPlus size={16} /> Add
+          </button>
+        </div>
+
+        <div className="hero-actions">
+          <button className="toggle inline-flex items-center justify-center" type="button" onClick={onSaveMembers} disabled={!canManageAccess}>
+            Save Access
+          </button>
+        </div>
       </div>
-      <form className="grid gap-3 md:grid-cols-[1fr_220px_auto_auto]" onSubmit={onSaveAppUrl}>
-        <input className="editor min-h-0" placeholder="https://your-deployed-app.com" value={appUrlDraft} onChange={(event) => setAppUrlDraft(event.target.value)} />
-        <select className="editor min-h-0" value={deploymentPlatformDraft} onChange={(event) => setDeploymentPlatformDraft(event.target.value as Project['deploymentPlatform'])}>
-          {deploymentPlatforms.map((platform) => <option key={platform}>{platform}</option>)}
-        </select>
-        <button className="toggle inline-flex items-center justify-center" type="button" onClick={() => setDeploymentPlatformDraft(detectDeploymentPlatform(appUrlDraft))} disabled={!appUrlDraft.trim()}>
-          Detect Platform
-        </button>
-        <button className="toggle inline-flex items-center justify-center" type="submit" disabled={!appUrlDraft.trim()}>
-          Save Connection
-        </button>
-      </form>
-      <p className="subtle">{providerInstructions[deploymentPlatformDraft]}</p>
-      <p className="subtle">After saving the App URL, DevPilot checks it every 30 seconds and Prometheus sends uptime, response time, HTTP status, and health state to Grafana.</p>
     </div>
   );
 };
@@ -470,30 +632,30 @@ const DeploymentWebhookSetup = ({ webhookUrl, copied, onCopy, platform }: { webh
   </div>
 );
 
-const DeploymentForm = ({ draft, setDraft, onSubmit }: { draft: DeploymentDraft; setDraft: (draft: DeploymentDraft) => void; onSubmit: (event: FormEvent) => void }) => (
+const DeploymentForm = ({ draft, setDraft, onSubmit, disabled }: { draft: DeploymentDraft; setDraft: (draft: DeploymentDraft) => void; onSubmit: (event: FormEvent) => void; disabled: boolean }) => (
   <form className="card surface-card grid gap-3 md:grid-cols-[180px_1fr_1fr_150px_150px_220px_auto]" onSubmit={onSubmit}>
-    <select className="editor min-h-0" value={draft.provider} onChange={(event) => setDraft({ ...draft, provider: event.target.value as Deployment['provider'] })}>
+    <select className="editor min-h-0" value={draft.provider} onChange={(event) => setDraft({ ...draft, provider: event.target.value as Deployment['provider'] })} disabled={disabled}>
       {deploymentProviders.map((provider) => <option key={provider}>{provider}</option>)}
     </select>
-    <input className="editor min-h-0" placeholder="Service" value={draft.service} onChange={(event) => setDraft({ ...draft, service: event.target.value })} />
-    <input className="editor min-h-0" placeholder="Version" value={draft.version} onChange={(event) => setDraft({ ...draft, version: event.target.value })} />
-    <select className="editor min-h-0" value={draft.environment} onChange={(event) => setDraft({ ...draft, environment: event.target.value as Deployment['environment'] })}>
+    <input className="editor min-h-0" placeholder="Service" value={draft.service} onChange={(event) => setDraft({ ...draft, service: event.target.value })} disabled={disabled} />
+    <input className="editor min-h-0" placeholder="Version" value={draft.version} onChange={(event) => setDraft({ ...draft, version: event.target.value })} disabled={disabled} />
+    <select className="editor min-h-0" value={draft.environment} onChange={(event) => setDraft({ ...draft, environment: event.target.value as Deployment['environment'] })} disabled={disabled}>
       {['staging', 'production'].map((environment) => <option key={environment}>{environment}</option>)}
     </select>
-    <select className="editor min-h-0" value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as Deployment['status'] })}>
+    <select className="editor min-h-0" value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as Deployment['status'] })} disabled={disabled}>
       {['Queued', 'Running', 'Succeeded', 'Failed', 'Rolled Back'].map((status) => <option key={status}>{status}</option>)}
     </select>
-    <input className="editor min-h-0" type="datetime-local" value={draft.startedAt} onChange={(event) => setDraft({ ...draft, startedAt: event.target.value })} />
-    <button className="toggle inline-flex items-center justify-center gap-2" type="submit"><Plus size={16} /> Add</button>
-    <input className="editor min-h-0 md:col-span-2" placeholder="Deployment URL" value={draft.deploymentUrl} onChange={(event) => setDraft({ ...draft, deploymentUrl: event.target.value })} />
-    <input className="editor min-h-0" placeholder="Commit SHA" value={draft.commitSha} onChange={(event) => setDraft({ ...draft, commitSha: event.target.value })} />
-    <input className="editor min-h-0" placeholder="Branch" value={draft.branch} onChange={(event) => setDraft({ ...draft, branch: event.target.value })} />
-    <input className="editor min-h-0" placeholder="Triggered by" value={draft.triggeredBy} onChange={(event) => setDraft({ ...draft, triggeredBy: event.target.value })} />
-    <input className="editor min-h-0" placeholder="External ID" value={draft.externalId} onChange={(event) => setDraft({ ...draft, externalId: event.target.value })} />
+    <input className="editor min-h-0" type="datetime-local" value={draft.startedAt} onChange={(event) => setDraft({ ...draft, startedAt: event.target.value })} disabled={disabled} />
+    <button className="toggle inline-flex items-center justify-center gap-2" type="submit" disabled={disabled}><Plus size={16} /> Add</button>
+    <input className="editor min-h-0 md:col-span-2" placeholder="Deployment URL" value={draft.deploymentUrl} onChange={(event) => setDraft({ ...draft, deploymentUrl: event.target.value })} disabled={disabled} />
+    <input className="editor min-h-0" placeholder="Commit SHA" value={draft.commitSha} onChange={(event) => setDraft({ ...draft, commitSha: event.target.value })} disabled={disabled} />
+    <input className="editor min-h-0" placeholder="Branch" value={draft.branch} onChange={(event) => setDraft({ ...draft, branch: event.target.value })} disabled={disabled} />
+    <input className="editor min-h-0" placeholder="Triggered by" value={draft.triggeredBy} onChange={(event) => setDraft({ ...draft, triggeredBy: event.target.value })} disabled={disabled} />
+    <input className="editor min-h-0" placeholder="External ID" value={draft.externalId} onChange={(event) => setDraft({ ...draft, externalId: event.target.value })} disabled={disabled} />
   </form>
 );
 
-const IncidentTable = ({ incidents, onUpdate }: { incidents: Incident[]; onUpdate: (incident: Incident, status: Incident['status']) => void }) => (
+const IncidentTable = ({ incidents, onUpdate, disabled }: { incidents: Incident[]; onUpdate: (incident: Incident, status: Incident['status']) => void; disabled: boolean }) => (
   <div className="card surface-card overflow-x-auto">
     <table className="data-table"><thead><tr><th>Title</th><th>Description</th><th>Severity</th><th>Status</th><th>Created At</th><th>Resolved At</th><th>Actions</th></tr></thead><tbody>
       {incidents.map((incident) => (
@@ -506,10 +668,10 @@ const IncidentTable = ({ incidents, onUpdate }: { incidents: Incident[]; onUpdat
           <td>{incident.resolvedAt ? new Date(incident.resolvedAt).toLocaleString() : ''}</td>
           <td>
             <div className="flex gap-2">
-              <select value={incident.status} onChange={(event) => onUpdate(incident, event.target.value as Incident['status'])}>
+              <select value={incident.status} disabled={disabled} onChange={(event) => onUpdate(incident, event.target.value as Incident['status'])}>
                 {['Open', 'Investigating', 'Resolved'].map((status) => <option key={status}>{status}</option>)}
               </select>
-              {incident.status !== 'Resolved' ? <button className="button-secondary" type="button" onClick={() => onUpdate(incident, 'Resolved')}>Resolve</button> : null}
+              {incident.status !== 'Resolved' ? <button className="button-secondary" type="button" disabled={disabled} onClick={() => onUpdate(incident, 'Resolved')}>Resolve</button> : null}
             </div>
           </td>
         </tr>

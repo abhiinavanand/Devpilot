@@ -28,7 +28,25 @@ const realtime = (0, realtime_1.createRealtimeServer)(server);
 const isServerless = process.env.VERCEL === '1';
 const requesterEmail = (req) => String(req.header('x-user-email') || '').trim().toLowerCase();
 const requesterName = (req) => String(req.header('x-user') || '').trim();
-const projectOwnedBy = (project, email) => Boolean(email) && (project.ownerEmail || '').trim().toLowerCase() === email;
+const projectMembership = (project, email) => {
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    if (!normalizedEmail)
+        return undefined;
+    return (project.members || []).find((member) => String(member.email || '').trim().toLowerCase() === normalizedEmail)
+        || ((project.ownerEmail || '').trim().toLowerCase() === normalizedEmail
+            ? { email: normalizedEmail, name: project.owner, role: 'owner' }
+            : undefined);
+};
+const projectAccessibleBy = (project, email) => Boolean(projectMembership(project, email));
+const canManageProject = (project, email) => {
+    const role = projectMembership(project, email)?.role;
+    return role === 'owner' || role === 'admin';
+};
+const canDeleteProject = (project, email) => projectMembership(project, email)?.role === 'owner';
+const canEditProjectContent = (project, email) => {
+    const role = projectMembership(project, email)?.role;
+    return role === 'owner' || role === 'admin' || role === 'member';
+};
 const requireRequesterEmail = (req, res) => {
     const email = requesterEmail(req);
     if (!email) {
@@ -37,7 +55,7 @@ const requireRequesterEmail = (req, res) => {
     }
     return email;
 };
-const ownedProjects = (projects, email) => projects.filter((project) => projectOwnedBy(project, email));
+const visibleProjects = (projects, email) => projects.filter((project) => projectAccessibleBy(project, email));
 const normalizeDeploymentStatus = (status) => {
     const value = String(status || '').trim().toLowerCase();
     if (['success', 'succeeded', 'ready', 'completed', 'complete'].includes(value))
@@ -364,7 +382,7 @@ exports.app.get('/api/dashboard', async (_req, res) => {
     if (!email)
         return;
     const store = await (0, store_1.readStoreAsync)();
-    const projects = ownedProjects(store.projects, email);
+    const projects = visibleProjects(store.projects, email);
     const projectIds = new Set(projects.map((project) => project.id));
     const tasks = store.tasks.filter((task) => projectIds.has(task.projectId));
     const incidents = store.incidents.filter((incident) => projectIds.has(incident.projectId));
@@ -418,7 +436,7 @@ exports.app.get('/api/projects', async (_req, res) => {
     if (!email)
         return;
     const store = await (0, store_1.readStoreAsync)();
-    const projects = ownedProjects(store.projects, email).map((project) => ({
+    const projects = visibleProjects(store.projects, email).map((project) => ({
         ...project,
         taskCount: store.tasks.filter((task) => task.projectId === project.id).length,
         openTasks: store.tasks.filter((task) => task.projectId === project.id && task.status !== 'DONE').length,
@@ -446,7 +464,7 @@ exports.app.patch('/api/projects/:id', async (req, res) => {
     if (!email)
         return;
     const current = (await (0, store_1.listProjectsAsync)()).find((item) => item.id === req.params.id);
-    if (!current || !projectOwnedBy(current, email)) {
+    if (!current || !canManageProject(current, email)) {
         res.status(404).json({ error: 'Project not found' });
         return;
     }
@@ -472,7 +490,7 @@ exports.app.delete('/api/projects/:id', async (req, res) => {
     if (!email)
         return;
     const current = (await (0, store_1.listProjectsAsync)()).find((item) => item.id === req.params.id);
-    if (!current || !projectOwnedBy(current, email)) {
+    if (!current || !canDeleteProject(current, email)) {
         res.status(404).json({ error: 'Project not found' });
         return;
     }
@@ -489,7 +507,7 @@ exports.app.get('/api/projects/:projectId/tasks', async (req, res) => {
         return;
     const store = await (0, store_1.readStoreAsync)();
     const project = store.projects.find((item) => item.id === req.params.projectId);
-    if (!project || !projectOwnedBy(project, email)) {
+    if (!project || !projectAccessibleBy(project, email)) {
         res.status(404).json({ error: 'Project not found' });
         return;
     }
@@ -502,7 +520,7 @@ exports.app.get('/api/projects/:projectId/summary', async (req, res) => {
         return;
     const store = await (0, store_1.readStoreAsync)();
     const project = store.projects.find((item) => item.id === req.params.projectId);
-    if (!project || !projectOwnedBy(project, email)) {
+    if (!project || !projectAccessibleBy(project, email)) {
         res.status(404).json({ error: 'Project not found' });
         return;
     }
@@ -519,7 +537,7 @@ exports.app.get('/api/projects/:projectId/health-checks', async (req, res) => {
     if (!email)
         return;
     const project = (await (0, store_1.listProjectsAsync)()).find((item) => item.id === req.params.projectId);
-    if (!project || !projectOwnedBy(project, email)) {
+    if (!project || !projectAccessibleBy(project, email)) {
         res.status(404).json({ error: 'Project not found' });
         return;
     }
@@ -531,7 +549,7 @@ exports.app.get('/api/tasks', async (req, res) => {
         return;
     const projectId = String(req.query.projectId || '');
     const store = await (0, store_1.readStoreAsync)();
-    const projectIds = new Set(ownedProjects(store.projects, email).map((project) => project.id));
+    const projectIds = new Set(visibleProjects(store.projects, email).map((project) => project.id));
     const tasks = store.tasks.filter((task) => projectIds.has(task.projectId) && (!projectId || task.projectId === projectId));
     res.json({ tasks });
 });
@@ -540,8 +558,12 @@ exports.app.post('/api/tasks', async (req, res) => {
     if (!email)
         return;
     const project = (await (0, store_1.listProjectsAsync)()).find((item) => item.id === String(req.body?.projectId || ''));
-    if (!project || !projectOwnedBy(project, email)) {
+    if (!project) {
         res.status(404).json({ error: 'Project not found' });
+        return;
+    }
+    if (!canEditProjectContent(project, email)) {
+        res.status(403).json({ error: 'Project access denied' });
         return;
     }
     const task = await (0, store_1.createTask)(req.body || {});
@@ -562,8 +584,12 @@ exports.app.patch('/api/tasks/:id', async (req, res) => {
     const store = await (0, store_1.readStoreAsync)();
     const existing = store.tasks.find((item) => item.id === req.params.id);
     const project = existing ? store.projects.find((item) => item.id === existing.projectId) : undefined;
-    if (!existing || !project || !projectOwnedBy(project, email)) {
+    if (!existing || !project) {
         res.status(404).json({ error: 'Task not found' });
+        return;
+    }
+    if (!canEditProjectContent(project, email)) {
+        res.status(403).json({ error: 'Task access denied' });
         return;
     }
     const task = await (0, store_1.updateTask)(req.params.id, req.body || {});
@@ -587,8 +613,12 @@ exports.app.delete('/api/tasks/:id', async (req, res) => {
     const store = await (0, store_1.readStoreAsync)();
     const existing = store.tasks.find((item) => item.id === req.params.id);
     const project = existing ? store.projects.find((item) => item.id === existing.projectId) : undefined;
-    if (!existing || !project || !projectOwnedBy(project, email)) {
+    if (!existing || !project) {
         res.status(404).json({ error: 'Task not found' });
+        return;
+    }
+    if (!canEditProjectContent(project, email)) {
+        res.status(403).json({ error: 'Task access denied' });
         return;
     }
     const deleted = await (0, store_1.deleteTask)(req.params.id);
@@ -610,7 +640,7 @@ exports.app.get('/api/deployments', async (req, res) => {
         return;
     const projectId = String(req.query.projectId || '');
     const store = await (0, store_1.readStoreAsync)();
-    const projectIds = new Set(ownedProjects(store.projects, email).map((project) => project.id));
+    const projectIds = new Set(visibleProjects(store.projects, email).map((project) => project.id));
     const deployments = store.deployments.filter((deployment) => projectIds.has(deployment.projectId) && (!projectId || deployment.projectId === projectId));
     res.json({ deployments });
 });
@@ -619,8 +649,12 @@ exports.app.post('/api/deployments', async (req, res) => {
     if (!email)
         return;
     const project = (await (0, store_1.listProjectsAsync)()).find((item) => item.id === String(req.body?.projectId || ''));
-    if (!project || !projectOwnedBy(project, email)) {
+    if (!project) {
         res.status(404).json({ error: 'Project not found' });
+        return;
+    }
+    if (!canEditProjectContent(project, email)) {
+        res.status(403).json({ error: 'Project access denied' });
         return;
     }
     const deployment = await (0, store_1.createDeployment)(req.body || {});
@@ -700,7 +734,7 @@ exports.app.get('/api/incidents', async (req, res) => {
         return;
     const projectId = String(req.query.projectId || '');
     const store = await (0, store_1.readStoreAsync)();
-    const projectIds = new Set(ownedProjects(store.projects, email).map((project) => project.id));
+    const projectIds = new Set(visibleProjects(store.projects, email).map((project) => project.id));
     const incidents = store.incidents.filter((incident) => projectIds.has(incident.projectId) && (!projectId || incident.projectId === projectId));
     res.json({ incidents });
 });
@@ -709,8 +743,12 @@ exports.app.post('/api/incidents', async (req, res) => {
     if (!email)
         return;
     const project = (await (0, store_1.listProjectsAsync)()).find((item) => item.id === String(req.body?.projectId || ''));
-    if (!project || !projectOwnedBy(project, email)) {
+    if (!project) {
         res.status(404).json({ error: 'Project not found' });
+        return;
+    }
+    if (!canEditProjectContent(project, email)) {
+        res.status(403).json({ error: 'Project access denied' });
         return;
     }
     const incident = await (0, store_1.createIncident)(req.body || {});
@@ -731,8 +769,12 @@ exports.app.patch('/api/incidents/:id', async (req, res) => {
     const store = await (0, store_1.readStoreAsync)();
     const existing = store.incidents.find((item) => item.id === req.params.id);
     const project = existing ? store.projects.find((item) => item.id === existing.projectId) : undefined;
-    if (!existing || !project || !projectOwnedBy(project, email)) {
+    if (!existing || !project) {
         res.status(404).json({ error: 'Incident not found' });
+        return;
+    }
+    if (!canEditProjectContent(project, email)) {
+        res.status(403).json({ error: 'Incident access denied' });
         return;
     }
     const incident = await (0, store_1.updateIncident)(req.params.id, req.body || {});

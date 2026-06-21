@@ -9,6 +9,12 @@ const { DatabaseSync } = require('node:sqlite') as {
 
 export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE';
 export type Priority = 'Low' | 'Medium' | 'High' | 'Critical';
+export type ProjectRole = 'owner' | 'admin' | 'member' | 'viewer';
+export type ProjectMember = {
+  email: string;
+  name: string;
+  role: ProjectRole;
+};
 
 export type Project = {
   id: string;
@@ -16,6 +22,7 @@ export type Project = {
   description: string;
   owner: string;
   ownerEmail: string;
+  members: ProjectMember[];
   serviceName: string;
   deploymentPlatform: 'GitHub Pages' | 'Vercel' | 'Railway' | 'Render' | 'Other';
   appUrl: string;
@@ -198,6 +205,35 @@ const normalizeAppUrl = (value: unknown) => {
   if (!raw) return '';
   return /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
 };
+const normalizeEmail = (value: unknown) => String(value || '').trim().toLowerCase();
+const normalizeProjectRole = (value: unknown): ProjectRole => {
+  const role = String(value || '').trim().toLowerCase();
+  if (role === 'owner' || role === 'admin' || role === 'member' || role === 'viewer') return role;
+  return 'member';
+};
+const normalizeProjectMembers = (members: unknown, ownerName: unknown, ownerEmail: unknown): ProjectMember[] => {
+  const owner = {
+    email: normalizeEmail(ownerEmail),
+    name: String(ownerName || '').trim(),
+    role: 'owner' as ProjectRole,
+  };
+  const deduped = new Map<string, ProjectMember>();
+  if (owner.email) deduped.set(owner.email, owner);
+
+  const source = Array.isArray(members) ? members : [];
+  source.forEach((member) => {
+    const candidate = member as Partial<ProjectMember> | null | undefined;
+    const email = normalizeEmail(candidate?.email);
+    if (!email) return;
+    deduped.set(email, {
+      email,
+      name: String(candidate?.name || '').trim() || email,
+      role: email === owner.email ? 'owner' : normalizeProjectRole(candidate?.role),
+    });
+  });
+
+  return Array.from(deduped.values());
+};
 
 const normalizeStatus = (status: unknown): TaskStatus => {
   const value = String(status || '').trim();
@@ -223,6 +259,14 @@ const parseLabels = (value: string | null | undefined) => {
     return [];
   }
 };
+const parseProjectMembers = (value: string | null | undefined, ownerName: unknown, ownerEmail: unknown) => {
+  if (!value) return normalizeProjectMembers([], ownerName, ownerEmail);
+  try {
+    return normalizeProjectMembers(JSON.parse(value), ownerName, ownerEmail);
+  } catch {
+    return normalizeProjectMembers([], ownerName, ownerEmail);
+  }
+};
 
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
@@ -243,6 +287,7 @@ db.exec(`
     description TEXT NOT NULL,
     owner TEXT NOT NULL,
     owner_email TEXT NOT NULL DEFAULT '',
+    members_json TEXT NOT NULL DEFAULT '[]',
     service_name TEXT NOT NULL DEFAULT '',
     deployment_platform TEXT NOT NULL DEFAULT 'Other',
     app_url TEXT NOT NULL DEFAULT '',
@@ -413,6 +458,12 @@ try {
 }
 
 try {
+  run(`ALTER TABLE projects ADD COLUMN members_json TEXT NOT NULL DEFAULT '[]'`);
+} catch {
+  // Column already exists in upgraded databases.
+}
+
+try {
   run(`ALTER TABLE tasks ADD COLUMN project_id TEXT NOT NULL DEFAULT ''`);
 } catch {
   // Column already exists in upgraded databases.
@@ -458,13 +509,14 @@ function ensureDefaultProject() {
   const timestamp = now();
   const id = uuid();
   run(
-    `INSERT INTO projects (id, name, description, owner, service_name, app_url, deployment_webhook_token, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO projects (id, name, description, owner, owner_email, members_json, service_name, deployment_platform, app_url, deployment_webhook_token, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     DEFAULT_PROJECT_NAME,
     'Core SaaS workspace for project management and DevOps observability.',
     'Platform Team',
     '',
+    json([]),
     'api-gateway',
     'Other',
     'http://localhost:3000/health',
@@ -532,6 +584,7 @@ const projectFromRow = (row: any): Project => ({
   description: row.description,
   owner: row.owner,
   ownerEmail: row.owner_email || '',
+  members: parseProjectMembers(row.members_json, row.owner, row.owner_email),
   serviceName: row.service_name || '',
   deploymentPlatform: row.deployment_platform || 'Other',
   appUrl: row.app_url || '',
@@ -689,6 +742,7 @@ export const createProject = (input: Partial<Project>) => {
     description: String(input.description || ''),
     owner: String(input.owner || 'Platform Team'),
     ownerEmail: String(input.ownerEmail || ''),
+    members: normalizeProjectMembers(input.members, input.owner || 'Platform Team', input.ownerEmail || ''),
     serviceName: String(input.serviceName || ''),
     deploymentPlatform: String(input.deploymentPlatform || 'Other') as Project['deploymentPlatform'],
     appUrl: normalizeAppUrl(input.appUrl),
@@ -699,13 +753,14 @@ export const createProject = (input: Partial<Project>) => {
   };
 
   run(
-    `INSERT INTO projects (id, name, description, owner, owner_email, service_name, deployment_platform, app_url, deployment_webhook_token, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO projects (id, name, description, owner, owner_email, members_json, service_name, deployment_platform, app_url, deployment_webhook_token, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     project.id,
     project.name,
     project.description,
     project.owner,
     project.ownerEmail,
+    json(project.members),
     project.serviceName,
     project.deploymentPlatform,
     project.appUrl,
@@ -728,14 +783,16 @@ export const updateProject = (id: string, patch: Partial<Project>) => {
     id,
     updatedAt: now(),
   };
+  updated.members = normalizeProjectMembers(updated.members, updated.owner, updated.ownerEmail);
   updated.appUrl = normalizeAppUrl(updated.appUrl);
 
   run(
-    `UPDATE projects SET name = ?, description = ?, owner = ?, owner_email = ?, service_name = ?, deployment_platform = ?, app_url = ?, deployment_webhook_token = ?, status = ?, updated_at = ? WHERE id = ?`,
+    `UPDATE projects SET name = ?, description = ?, owner = ?, owner_email = ?, members_json = ?, service_name = ?, deployment_platform = ?, app_url = ?, deployment_webhook_token = ?, status = ?, updated_at = ? WHERE id = ?`,
     updated.name,
     updated.description,
     updated.owner,
     updated.ownerEmail,
+    json(updated.members),
     updated.serviceName,
     updated.deploymentPlatform,
     updated.appUrl,

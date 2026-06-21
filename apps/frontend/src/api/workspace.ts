@@ -2,6 +2,12 @@ import { apiClient } from './client';
 
 export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE';
 export type Priority = 'Low' | 'Medium' | 'High' | 'Critical';
+export type ProjectRole = 'owner' | 'admin' | 'member' | 'viewer';
+export type ProjectMember = {
+  email: string;
+  name: string;
+  role: ProjectRole;
+};
 
 export type Project = {
   id: string;
@@ -9,6 +15,7 @@ export type Project = {
   description: string;
   owner: string;
   ownerEmail?: string;
+  members: ProjectMember[];
   serviceName: string;
   deploymentPlatform: 'GitHub Pages' | 'Vercel' | 'Railway' | 'Render' | 'Other';
   appUrl: string;

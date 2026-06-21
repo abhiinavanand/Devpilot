@@ -16,8 +16,19 @@ const normalizeUrlInput = (value: string) => {
   const trimmed = value.trim();
   return trimmed && !/^https?:\/\//i.test(trimmed) ? `https://${trimmed}` : trimmed;
 };
+const parseMemberEmails = (value: string) =>
+  Array.from(new Set(
+    value
+      .split(',')
+      .map((entry) => entry.trim().toLowerCase())
+      .filter(Boolean),
+  )).map((email) => ({ email, name: email, role: 'member' as const }));
 
-const emptyProject: Pick<Project, 'name' | 'description' | 'owner' | 'serviceName' | 'deploymentPlatform' | 'appUrl' | 'status'> = {
+type ProjectDraft = Pick<Project, 'name' | 'description' | 'owner' | 'serviceName' | 'deploymentPlatform' | 'appUrl' | 'status'> & {
+  memberEmails: string;
+};
+
+const emptyProject: ProjectDraft = {
   name: '',
   description: '',
   owner: '',
@@ -25,6 +36,7 @@ const emptyProject: Pick<Project, 'name' | 'description' | 'owner' | 'serviceNam
   deploymentPlatform: 'Other',
   appUrl: '',
   status: 'Active',
+  memberEmails: '',
 };
 
 export const Projects = () => {
@@ -71,7 +83,12 @@ export const Projects = () => {
     }
 
     if (editing) {
-      const { project } = await workspaceApi.updateProject(editing.id, { ...draft, appUrl: normalizeUrlInput(draft.appUrl) });
+      const { memberEmails, ...projectDraft } = draft;
+      const { project } = await workspaceApi.updateProject(editing.id, {
+        ...projectDraft,
+        appUrl: normalizeUrlInput(projectDraft.appUrl),
+        members: parseMemberEmails(memberEmails),
+      });
       setProjects((current) => {
         const next = current.map((item) => (item.id === project.id ? project : item));
         localStorage.setItem(projectCacheKey(), JSON.stringify(next));
@@ -79,7 +96,13 @@ export const Projects = () => {
       });
       setEditing(null);
     } else {
-      const { project } = await workspaceApi.createProject({ ...draft, owner: draft.owner || currentUser?.name || '', appUrl: normalizeUrlInput(draft.appUrl) });
+      const { memberEmails, ...projectDraft } = draft;
+      const { project } = await workspaceApi.createProject({
+        ...projectDraft,
+        owner: projectDraft.owner || currentUser?.name || '',
+        appUrl: normalizeUrlInput(projectDraft.appUrl),
+        members: parseMemberEmails(memberEmails),
+      });
       setProjects((current) => {
         const next = [project, ...current];
         localStorage.setItem(projectCacheKey(), JSON.stringify(next));
@@ -92,7 +115,19 @@ export const Projects = () => {
 
   const startEdit = (project: Project) => {
     setEditing(project);
-    setDraft({ name: project.name, description: project.description, owner: project.owner, serviceName: project.serviceName, deploymentPlatform: project.deploymentPlatform, appUrl: project.appUrl, status: project.status });
+    setDraft({
+      name: project.name,
+      description: project.description,
+      owner: project.owner,
+      serviceName: project.serviceName,
+      deploymentPlatform: project.deploymentPlatform,
+      appUrl: project.appUrl,
+      status: project.status,
+      memberEmails: (project.members || [])
+        .filter((member) => member.role !== 'owner')
+        .map((member) => member.email)
+        .join(', '),
+    });
   };
 
   const deleteProject = async (project: Project) => {
@@ -110,10 +145,10 @@ export const Projects = () => {
         <div className="hero-copy">
           <div>
             <h1>Projects</h1>
-            <p className="subtle">Create the project here, connect its public app URL, then use the generated webhook to bring deployments and monitoring into DevPilot.</p>
+            <p className="subtle">Create a project, invite teammates by email, connect its app URL, and keep delivery plus monitoring in one shared workspace.</p>
           </div>
           <div className="hero-meta">
-            <span className="status-badge status-healthy"><span className="status-badge-dot" /> Scoped to {currentUser?.email || 'your account'}</span>
+            <span className="status-badge status-healthy"><span className="status-badge-dot" /> Signed in as {currentUser?.email || 'guest'}</span>
           </div>
         </div>
       </div>
@@ -137,6 +172,7 @@ export const Projects = () => {
           </select>
         </div>
         <input className="editor min-h-0" placeholder="App URL to monitor, optional until after webhook setup" value={draft.appUrl} onChange={(event) => setDraft({ ...draft, appUrl: event.target.value })} />
+        <input className="editor min-h-0" placeholder="Team member emails, comma separated" value={draft.memberEmails} onChange={(event) => setDraft({ ...draft, memberEmails: event.target.value })} />
         <textarea className="editor" placeholder="Description" value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
         <div className="hero-actions">
           <button className="toggle inline-flex items-center justify-center gap-2" type="submit"><Plus size={16} /> {editing ? 'Save Project' : 'Create Project'}</button>

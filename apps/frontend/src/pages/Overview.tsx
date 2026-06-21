@@ -70,11 +70,11 @@ export const Overview = () => {
         <div className="hero-copy">
           <div>
             <h1>Overview</h1>
-            <p className="subtle">This dashboard is driven entirely by your project records, tasks, deployments, incidents, and health checks.</p>
+            <p className="subtle">This workspace rolls up project records, issues, releases, incidents, and health checks across your engineering portfolio.</p>
           </div>
           <div className="hero-meta">
             <span className="status-badge status-healthy"><span className="status-badge-dot" /> Real data only</span>
-            <span className="subtle">Recent changes, current health, and open work.</span>
+            <span className="subtle">Issue flow, release activity, and current health.</span>
           </div>
         </div>
       </div>
@@ -104,7 +104,7 @@ export const Overview = () => {
           <div className="topbar">
             <div>
               <h3>Recent Activity</h3>
-              <p className="subtle">Project, task, deployment, and incident events in time order.</p>
+              <p className="subtle">Project, issue, release, and incident events in time order.</p>
             </div>
             <span className="badge">{activity.length} events</span>
           </div>

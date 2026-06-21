@@ -16,6 +16,18 @@ const normalizeAppUrl = (value: unknown) => {
   return /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
 };
 const normalizeEmail = (value: unknown) => String(value || '').trim().toLowerCase();
+const normalizeProjectKey = (value: unknown, fallback: unknown) => {
+  const raw = String(value || '').trim().toUpperCase();
+  const compact = raw.replace(/[^A-Z0-9]/g, '').slice(0, 6);
+  if (compact) return compact;
+  return String(fallback || 'PROJ')
+    .split(/[\s-_]+/)
+    .map((part) => part[0] || '')
+    .join('')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .slice(0, 6) || 'PROJ';
+};
 const normalizeProjectRole = (value: unknown): ProjectRole => {
   const role = String(value || '').trim().toLowerCase();
   if (role === 'owner' || role === 'admin' || role === 'member' || role === 'viewer') return role;
@@ -106,6 +118,13 @@ const ensureProjectMembersColumn = async () => {
     if (error?.code !== '42701') throw error;
   }
 };
+const ensureProjectKeyColumn = async () => {
+  try {
+    await pool?.query(`ALTER TABLE projects ADD COLUMN project_key TEXT NOT NULL DEFAULT 'PROJ'`);
+  } catch (error: any) {
+    if (error?.code !== '42701') throw error;
+  }
+};
 
 export const init = async () => {
   if (!pool) return;
@@ -115,6 +134,7 @@ export const init = async () => {
       CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
+        project_key TEXT NOT NULL DEFAULT 'PROJ',
         description TEXT NOT NULL,
         owner TEXT NOT NULL,
         owner_email TEXT NOT NULL DEFAULT '',
@@ -188,6 +208,7 @@ export const init = async () => {
     await ensureProjectOwnerEmailColumn();
     await ensureProjectDeploymentPlatformColumn();
     await ensureProjectMembersColumn();
+    await ensureProjectKeyColumn();
   })();
   return initialized;
 };
@@ -195,6 +216,7 @@ export const init = async () => {
 const projectFromRow = (row: any): Project => ({
   id: row.id,
   name: row.name,
+  projectKey: normalizeProjectKey(row.project_key, row.name),
   description: row.description,
   owner: row.owner,
   ownerEmail: row.owner_email || '',
@@ -293,6 +315,7 @@ export const createProject = async (input: Partial<Project>) => {
   const project: Project = {
     id: uuid(),
     name: String(input.name || 'Untitled project'),
+    projectKey: normalizeProjectKey(input.projectKey, input.name || 'Untitled project'),
     description: String(input.description || ''),
     owner: String(input.owner || 'Platform Team'),
     ownerEmail: String(input.ownerEmail || ''),
@@ -306,9 +329,9 @@ export const createProject = async (input: Partial<Project>) => {
     updatedAt: timestamp,
   };
   await query(
-    `INSERT INTO projects (id, name, description, owner, owner_email, members_json, service_name, deployment_platform, app_url, deployment_webhook_token, status, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-    [project.id, project.name, project.description, project.owner, project.ownerEmail, json(project.members), project.serviceName, project.deploymentPlatform, project.appUrl, project.deploymentWebhookToken, project.status, project.createdAt, project.updatedAt],
+    `INSERT INTO projects (id, name, project_key, description, owner, owner_email, members_json, service_name, deployment_platform, app_url, deployment_webhook_token, status, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [project.id, project.name, project.projectKey, project.description, project.owner, project.ownerEmail, json(project.members), project.serviceName, project.deploymentPlatform, project.appUrl, project.deploymentWebhookToken, project.status, project.createdAt, project.updatedAt],
   );
   return project;
 };
@@ -318,11 +341,12 @@ export const updateProject = async (id: string, patch: Partial<Project>) => {
   if (!existing) return undefined;
   const current = projectFromRow(existing);
   const updated = { ...current, ...patch, id, updatedAt: now() };
+  updated.projectKey = normalizeProjectKey(updated.projectKey, updated.name);
   updated.members = normalizeProjectMembers(updated.members, updated.owner, updated.ownerEmail);
   updated.appUrl = normalizeAppUrl(updated.appUrl);
   await query(
-    `UPDATE projects SET name=$1, description=$2, owner=$3, owner_email=$4, members_json=$5, service_name=$6, deployment_platform=$7, app_url=$8, deployment_webhook_token=$9, status=$10, updated_at=$11 WHERE id=$12`,
-    [updated.name, updated.description, updated.owner, updated.ownerEmail, json(updated.members), updated.serviceName, updated.deploymentPlatform, updated.appUrl, updated.deploymentWebhookToken || uuid(), updated.status, updated.updatedAt, id],
+    `UPDATE projects SET name=$1, project_key=$2, description=$3, owner=$4, owner_email=$5, members_json=$6, service_name=$7, deployment_platform=$8, app_url=$9, deployment_webhook_token=$10, status=$11, updated_at=$12 WHERE id=$13`,
+    [updated.name, updated.projectKey, updated.description, updated.owner, updated.ownerEmail, json(updated.members), updated.serviceName, updated.deploymentPlatform, updated.appUrl, updated.deploymentWebhookToken || uuid(), updated.status, updated.updatedAt, id],
   );
   return updated;
 };

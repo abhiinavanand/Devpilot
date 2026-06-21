@@ -12,6 +12,7 @@ export type ProjectMember = {
 export type Project = {
   id: string;
   name: string;
+  projectKey: string;
   description: string;
   owner: string;
   ownerEmail?: string;

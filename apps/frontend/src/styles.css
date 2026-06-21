@@ -463,6 +463,48 @@ select {
     box-shadow: 0 0 0 6px rgb(var(--primary) / 0.14);
   }
 
+  .issue-key {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    border-radius: 999px;
+    background: rgb(var(--primary) / 0.08);
+    color: rgb(var(--primary));
+    padding: 0.18rem 0.5rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  .priority-pill {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 0.2rem 0.55rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+  }
+
+  .priority-critical {
+    background: rgb(var(--danger) / 0.12);
+    color: rgb(var(--danger));
+  }
+
+  .priority-high {
+    background: rgb(var(--warning) / 0.14);
+    color: rgb(var(--warning));
+  }
+
+  .priority-medium {
+    background: rgb(var(--primary) / 0.1);
+    color: rgb(var(--primary));
+  }
+
+  .priority-low {
+    background: rgb(var(--success) / 0.12);
+    color: rgb(var(--success));
+  }
+
   .chart-container {
     width: 100%;
     height: 240px;

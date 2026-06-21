@@ -25,11 +25,13 @@ const parseMemberEmails = (value: string) =>
   )).map((email) => ({ email, name: email, role: 'member' as const }));
 
 type ProjectDraft = Pick<Project, 'name' | 'description' | 'owner' | 'serviceName' | 'deploymentPlatform' | 'appUrl' | 'status'> & {
+  projectKey: string;
   memberEmails: string;
 };
 
 const emptyProject: ProjectDraft = {
   name: '',
+  projectKey: '',
   description: '',
   owner: '',
   serviceName: '',
@@ -117,6 +119,7 @@ export const Projects = () => {
     setEditing(project);
     setDraft({
       name: project.name,
+      projectKey: project.projectKey,
       description: project.description,
       owner: project.owner,
       serviceName: project.serviceName,
@@ -145,7 +148,7 @@ export const Projects = () => {
         <div className="hero-copy">
           <div>
             <h1>Projects</h1>
-            <p className="subtle">Create a project, invite teammates by email, connect its app URL, and keep delivery plus monitoring in one shared workspace.</p>
+            <p className="subtle">Create a Jira-style delivery workspace for each service, then manage issues, board flow, releases, incidents, and monitoring from inside the project.</p>
           </div>
           <div className="hero-meta">
             <span className="status-badge status-healthy"><span className="status-badge-dot" /> Signed in as {currentUser?.email || 'guest'}</span>
@@ -165,6 +168,7 @@ export const Projects = () => {
         </div>
         <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
           <input className="editor min-h-0" placeholder="Project name" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
+          <input className="editor min-h-0" placeholder="Project key, e.g. PAY" value={draft.projectKey} onChange={(event) => setDraft({ ...draft, projectKey: event.target.value.toUpperCase() })} />
           <input className="editor min-h-0" placeholder="Owner" value={draft.owner || currentUser?.name || ''} onChange={(event) => setDraft({ ...draft, owner: event.target.value })} />
           <input className="editor min-h-0" placeholder="Service name, e.g. analytics-service" value={draft.serviceName} onChange={(event) => setDraft({ ...draft, serviceName: event.target.value })} />
           <select className="editor min-h-0" value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as Project['status'] })}>
@@ -218,21 +222,27 @@ export const Projects = () => {
           <thead>
             <tr>
               <th>Project Name</th>
+              <th>Key</th>
+              <th>Service</th>
               <th>Owner</th>
               <th>Status</th>
-              <th>Open Tasks</th>
+              <th>Open Issues</th>
               <th>Open Incidents</th>
+              <th>Team</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {projects.map((project) => (
               <tr key={project.id}>
-                <td><strong>{project.name}</strong></td>
+                <td><div className="stack-sm"><strong>{project.name}</strong><span className="subtle">{project.description || 'No summary yet'}</span></div></td>
+                <td><span className="issue-key">{project.projectKey}</span></td>
+                <td>{project.serviceName || 'Not mapped'}</td>
                 <td>{project.owner}</td>
                 <td><span className="badge">{project.status}</span></td>
                 <td>{project.openTasks ?? 0}</td>
                 <td>{project.openIncidents ?? 0}</td>
+                <td>{project.members?.length || 1}</td>
                 <td>
                   <div className="flex gap-2">
                     <Link className="icon-button" title="Open project" to={`/projects/${project.id}`}><ExternalLink size={16} /></Link>
@@ -244,7 +254,7 @@ export const Projects = () => {
             ))}
             {!loading && !projects.length ? (
               <tr>
-                <td colSpan={6}>No projects yet. Create one to generate its deployment webhook.</td>
+                <td colSpan={9}>No projects yet. Create one to start managing issues, releases, and monitoring for a service.</td>
               </tr>
             ) : null}
           </tbody>

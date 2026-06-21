@@ -7,7 +7,7 @@ import { absoluteApiUrl } from '../api/client';
 import { workspaceApi, type Deployment, type Incident, type Priority, type Project, type ProjectHealthCheck, type ProjectMember, type ProjectRole, type Task, type TaskStatus } from '../api/workspace';
 import { useRealtimeListener } from '../api/realtime';
 
-const tabs = ['Overview', 'Tasks', 'Kanban', 'Deployments', 'Incidents', 'Analytics', 'Monitoring'] as const;
+const tabs = ['Summary', 'Issues', 'Board', 'Releases', 'Incidents', 'Analytics', 'Monitoring'] as const;
 const statuses: Array<{ id: TaskStatus; title: string }> = [
   { id: 'TODO', title: 'Todo' },
   { id: 'IN_PROGRESS', title: 'In Progress' },
@@ -52,6 +52,14 @@ const providerInstructions: Record<Project['deploymentPlatform'], string> = {
   Railway: 'Railway setup: Project Settings, Webhooks, Add webhook, paste this URL, then enable deployment events.',
   Render: 'Render setup: Service Settings, Notifications or outgoing webhook, paste this URL, then enable deploy succeeded and deploy failed events.',
   Other: 'If your platform supports outgoing webhooks, paste this URL and send deployment status, commit, branch, and environment details to DevPilot.',
+};
+const projectCode = (project: Project) => project.projectKey || 'PROJ';
+const issueKey = (project: Project, task: Task, index: number) => `${projectCode(project)}-${index + 1}`;
+const priorityTone = (priority: Priority) => {
+  if (priority === 'Critical') return 'priority-critical';
+  if (priority === 'High') return 'priority-high';
+  if (priority === 'Medium') return 'priority-medium';
+  return 'priority-low';
 };
 const webhookPlatformSlug = (platform: Project['deploymentPlatform']) => {
   if (platform === 'GitHub Pages') return 'github-pages';
@@ -98,7 +106,7 @@ type DeploymentDraft = {
 export const ProjectDetail = () => {
   const { id = '' } = useParams();
   const currentUser = readStoredUser();
-  const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>('Overview');
+  const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>('Summary');
   const [project, setProject] = useState<Project | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [deployments, setDeployments] = useState<Deployment[]>([]);
@@ -111,6 +119,8 @@ export const ProjectDetail = () => {
   const [memberDrafts, setMemberDrafts] = useState<ProjectMember[]>([]);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<ProjectRole>('member');
+  const [issueStatusFilter, setIssueStatusFilter] = useState<'ALL' | TaskStatus>('ALL');
+  const [issuePriorityFilter, setIssuePriorityFilter] = useState<'ALL' | Priority>('ALL');
   const [taskDraft, setTaskDraft] = useState({ title: '', description: '', assignee: '', priority: 'Medium' as Priority, status: 'TODO' as TaskStatus });
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [incidentDraft, setIncidentDraft] = useState({ title: '', description: '', severity: 'Medium' as Priority, service: 'api-gateway' });
@@ -175,6 +185,11 @@ export const ProjectDetail = () => {
     openIncidents: incidents.filter((incident) => incident.status !== 'Resolved').length,
     deployments: deployments.length,
   }), [tasks, incidents, deployments]);
+  const filteredTasks = useMemo(() => tasks.filter((task) => {
+    const statusMatches = issueStatusFilter === 'ALL' || task.status === issueStatusFilter;
+    const priorityMatches = issuePriorityFilter === 'ALL' || task.priority === issuePriorityFilter;
+    return statusMatches && priorityMatches;
+  }), [tasks, issuePriorityFilter, issueStatusFilter]);
   const currentMembership = useMemo(() => {
     const email = String(currentUser?.email || '').trim().toLowerCase();
     if (!email || !project) return undefined;
@@ -329,6 +344,7 @@ export const ProjectDetail = () => {
           </div>
           <div className="hero-meta">
             <StatusBadge value={project.status} />
+            <span className="issue-key">{project.projectKey}</span>
             <span className="subtle">{project.owner} · {project.serviceName || 'No service mapped yet'} · {(project.members || []).length} team member{(project.members || []).length === 1 ? '' : 's'}</span>
           </div>
         </div>
@@ -362,14 +378,14 @@ export const ProjectDetail = () => {
         ))}
       </div>
 
-      {activeTab === 'Overview' ? (
+      {activeTab === 'Summary' ? (
         <div className="space-y-6">
           <div className="grid">
             <div className="card surface-card metric-card">
               <div className="metric-card-top">
                 <div className="stack-sm">
                   <span className="metric-kicker">Project information</span>
-                  <h3>Connection summary</h3>
+                  <h3>Project snapshot</h3>
                 </div>
                 <span className="metric-icon"><Link2 size={18} /></span>
               </div>
@@ -379,30 +395,52 @@ export const ProjectDetail = () => {
                 <p className="subtle">Deployment platform: {project.deploymentPlatform}</p>
               </div>
             </div>
-            <MetricTile label="Open Tasks" value={summary.openTasks} helper={`${summary.completedTasks} completed`} icon={FolderKanban} />
-            <MetricTile label="Deployment Records" value={summary.deployments} helper="Tracked for this project" icon={GitBranch} />
+            <MetricTile label="Open Issues" value={summary.openTasks} helper={`${summary.completedTasks} completed`} icon={FolderKanban} />
+            <MetricTile label="Releases" value={summary.deployments} helper="Tracked for this project" icon={GitBranch} />
             <MetricTile label="Open Incidents" value={summary.openIncidents} helper="Operational issues still active" icon={Siren} />
           </div>
           <ProjectHealthPanel project={project} healthChecks={healthChecks} />
         </div>
       ) : null}
 
-      {activeTab === 'Tasks' ? (
+      {activeTab === 'Issues' ? (
         <div className="space-y-6">
           <TaskForm draft={taskDraft} setDraft={setTaskDraft} editing={Boolean(editingTask)} onSubmit={saveTask} assigneeOptions={(project.members || []).map((member) => member.email)} disabled={!canEditContent} />
-          <TaskTable tasks={tasks} onEdit={editTask} onDelete={deleteTask} onStatus={(task, status) => workspaceApi.updateTask(task.id, { status }).then(({ task: updated }) => setTasks((current) => current.map((item) => (item.id === updated.id ? updated : item))))} disabled={!canEditContent} />
+          <div className="card surface-card">
+            <div className="topbar">
+              <div>
+                <h3>Issue Backlog</h3>
+                <p className="subtle">Filter by workflow status and priority, then work the backlog like a Jira queue.</p>
+              </div>
+              <div className="hero-actions">
+                <select className="editor min-h-0" style={{ minWidth: 150 }} value={issueStatusFilter} onChange={(event) => setIssueStatusFilter(event.target.value as 'ALL' | TaskStatus)}>
+                  <option value="ALL">All statuses</option>
+                  {statuses.map((status) => <option key={status.id} value={status.id}>{status.title}</option>)}
+                </select>
+                <select className="editor min-h-0" style={{ minWidth: 150 }} value={issuePriorityFilter} onChange={(event) => setIssuePriorityFilter(event.target.value as 'ALL' | Priority)}>
+                  <option value="ALL">All priorities</option>
+                  {['Low', 'Medium', 'High', 'Critical'].map((priority) => <option key={priority} value={priority}>{priority}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+          <TaskTable project={project} tasks={filteredTasks} onEdit={editTask} onDelete={deleteTask} onStatus={(task, status) => workspaceApi.updateTask(task.id, { status }).then(({ task: updated }) => setTasks((current) => current.map((item) => (item.id === updated.id ? updated : item))))} disabled={!canEditContent} />
         </div>
       ) : null}
 
-      {activeTab === 'Kanban' ? (
+      {activeTab === 'Board' ? (
         <div className="kanban kanban-wide">
           {statuses.map((column) => (
             <div key={column.id} className="kanban-column" onDragOver={(event) => canEditContent && event.preventDefault()} onDrop={(event) => canEditContent && moveTask(event, column.id)}>
               <div className="topbar"><h3>{column.title}</h3><span className="badge">{tasks.filter((task) => task.status === column.id).length}</span></div>
-              {tasks.filter((task) => task.status === column.id).map((task) => (
+              {tasks.filter((task) => task.status === column.id).map((task, index) => (
                 <div className="kanban-card" key={task.id} draggable={canEditContent} onDragStart={(event) => canEditContent && event.dataTransfer.setData('taskId', task.id)}>
+                  <span className="issue-key">{issueKey(project, task, index)}</span>
                   <strong>{task.title}</strong>
-                  <p className="subtle">{task.assignee || 'Unassigned'} · {task.priority}</p>
+                  <div className="hero-meta">
+                    <span className={`priority-pill ${priorityTone(task.priority)}`}>{task.priority}</span>
+                    <span className="subtle">{task.assignee || 'Unassigned'}</span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -410,7 +448,7 @@ export const ProjectDetail = () => {
         </div>
       ) : null}
 
-      {activeTab === 'Deployments' ? (
+      {activeTab === 'Releases' ? (
         <div className="space-y-6">
           <DeploymentWebhookSetup webhookUrl={deploymentWebhookUrl} copied={copiedWebhook} onCopy={copyDeploymentWebhook} platform={effectiveDeploymentPlatform} />
           <DeploymentForm draft={deploymentDraft} setDraft={setDeploymentDraft} onSubmit={createDeployment} disabled={!canEditContent} />
@@ -440,7 +478,7 @@ export const ProjectDetail = () => {
 
 const TaskForm = ({ draft, setDraft, editing, onSubmit, assigneeOptions, disabled }: { draft: { title: string; description: string; assignee: string; priority: Priority; status: TaskStatus }; setDraft: (draft: { title: string; description: string; assignee: string; priority: Priority; status: TaskStatus }) => void; editing: boolean; onSubmit: (event: FormEvent) => void; assigneeOptions: string[]; disabled: boolean }) => (
   <form className="card surface-card grid gap-3 md:grid-cols-[1fr_1fr_140px_140px_auto]" onSubmit={onSubmit}>
-    <input className="editor min-h-0" placeholder="Task title" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} disabled={disabled} />
+    <input className="editor min-h-0" placeholder="Issue title" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} disabled={disabled} />
     <>
       <input className="editor min-h-0" list="project-assignees" placeholder="Assignee" value={draft.assignee} onChange={(event) => setDraft({ ...draft, assignee: event.target.value })} disabled={disabled} />
       <datalist id="project-assignees">
@@ -449,16 +487,16 @@ const TaskForm = ({ draft, setDraft, editing, onSubmit, assigneeOptions, disable
     </>
     <select className="editor min-h-0" value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value as Priority })} disabled={disabled}>{['Low', 'Medium', 'High', 'Critical'].map((priority) => <option key={priority}>{priority}</option>)}</select>
     <select className="editor min-h-0" value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as TaskStatus })} disabled={disabled}>{statuses.map((status) => <option key={status.id} value={status.id}>{status.title}</option>)}</select>
-    <button className="toggle" type="submit" disabled={disabled}>{editing ? 'Save' : 'Create'}</button>
-    <textarea className="editor md:col-span-5" placeholder="Description" value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} disabled={disabled} />
+    <button className="toggle" type="submit" disabled={disabled}>{editing ? 'Save Issue' : 'Create Issue'}</button>
+    <textarea className="editor md:col-span-5" placeholder="Issue description" value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} disabled={disabled} />
   </form>
 );
 
-const TaskTable = ({ tasks, onEdit, onDelete, onStatus, disabled }: { tasks: Task[]; onEdit: (task: Task) => void; onDelete: (task: Task) => void; onStatus: (task: Task, status: TaskStatus) => void; disabled: boolean }) => (
+const TaskTable = ({ project, tasks, onEdit, onDelete, onStatus, disabled }: { project: Project; tasks: Task[]; onEdit: (task: Task) => void; onDelete: (task: Task) => void; onStatus: (task: Task, status: TaskStatus) => void; disabled: boolean }) => (
   <div className="card surface-card overflow-x-auto">
-    <table className="data-table"><thead><tr><th>Title</th><th>Priority</th><th>Assignee</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-      {tasks.map((task) => <tr key={task.id}><td>{task.title}</td><td>{task.priority}</td><td>{task.assignee}</td><td><select value={task.status} disabled={disabled} onChange={(event) => onStatus(task, event.target.value as TaskStatus)}>{statuses.map((status) => <option key={status.id} value={status.id}>{status.title}</option>)}</select></td><td><button className="button-secondary" type="button" disabled={disabled} onClick={() => onEdit(task)}>Edit</button> <button className="button-secondary" type="button" disabled={disabled} onClick={() => onDelete(task)}>Delete</button></td></tr>)}
-      {!tasks.length ? <tr><td colSpan={5}>No tasks recorded for this project.</td></tr> : null}
+    <table className="data-table"><thead><tr><th>Issue</th><th>Priority</th><th>Assignee</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+      {tasks.map((task, index) => <tr key={task.id}><td><div className="stack-sm"><span className="issue-key">{issueKey(project, task, index)}</span><strong>{task.title}</strong></div></td><td><span className={`priority-pill ${priorityTone(task.priority)}`}>{task.priority}</span></td><td>{task.assignee}</td><td><select value={task.status} disabled={disabled} onChange={(event) => onStatus(task, event.target.value as TaskStatus)}>{statuses.map((status) => <option key={status.id} value={status.id}>{status.title}</option>)}</select></td><td><button className="button-secondary" type="button" disabled={disabled} onClick={() => onEdit(task)}>Edit</button> <button className="button-secondary" type="button" disabled={disabled} onClick={() => onDelete(task)}>Delete</button></td></tr>)}
+      {!tasks.length ? <tr><td colSpan={5}>No issues recorded for this project.</td></tr> : null}
     </tbody></table>
   </div>
 );

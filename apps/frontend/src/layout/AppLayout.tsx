@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { FolderKanban, LayoutGrid } from 'lucide-react';
+import { Activity, FolderKanban, LayoutGrid, LineChart } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/tooltip';
@@ -8,6 +8,8 @@ import type { AuthUser } from '../pages/Login';
 const navItems = [
   { label: 'Overview', path: '/', icon: LayoutGrid },
   { label: 'Projects', path: '/projects', icon: FolderKanban },
+  { label: 'Analytics', path: '/analytics', icon: LineChart },
+  { label: 'Monitoring', path: '/monitoring', icon: Activity },
 ];
 
 type AppLayoutProps = {
@@ -25,7 +27,7 @@ export const AppLayout = ({ user }: AppLayoutProps) => (
             </span>
             <div>
               <h2 className="text-lg font-semibold">DevPilot</h2>
-              <p className="text-xs text-muted">Project delivery workspace</p>
+              <p className="text-xs text-muted">Jira-style delivery, releases, and monitoring</p>
             </div>
           </div>
         </div>
@@ -56,6 +58,7 @@ export const AppLayout = ({ user }: AppLayoutProps) => (
             <Badge className="bg-success/15 text-success">Active</Badge>
           </div>
           <p className="text-xs text-muted">{user?.email || 'Local account'}</p>
+          <p className="text-xs text-muted">Projects, issues, releases, incidents, observability.</p>
         </Card>
       </aside>
 
